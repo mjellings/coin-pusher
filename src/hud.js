@@ -1,15 +1,9 @@
-// The on-screen panels: rolling counters, "+N" popups and the sound and quality buttons.
+// The on-screen panels: rolling counters, "+N" popups and the sound button.
 
 const SETTINGS_KEY = "coin-pusher:settings";
 
 export function loadSettings() {
-  const defaults = {
-    muted: false,
-    // Phones and tablets start on Low; everything else on High.
-    quality: matchMedia("(pointer: coarse)").matches ? "low" : "high",
-    // Set once the player picks a quality themselves, so we stop choosing for them.
-    qualityChosen: false,
-  };
+  const defaults = { muted: false };
   try {
     return { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
   } catch {
@@ -61,21 +55,15 @@ export function createHud() {
   const refill = document.getElementById("refill");
   const hint = document.getElementById("hint");
   const muteButton = document.getElementById("mute");
-  const qualityButton = document.getElementById("quality");
-  const qualityValue = qualityButton.querySelector(".quality-value");
 
   return {
     bank,
     won,
     refill,
     muteButton,
-    qualityButton,
     setMuted(muted) {
       muteButton.setAttribute("aria-pressed", String(muted));
       muteButton.setAttribute("aria-label", muted ? "Turn sound on" : "Mute sound");
-    },
-    setQuality(quality) {
-      qualityValue.textContent = quality === "high" ? "High" : "Low";
     },
     fadeHint() {
       hint.classList.add("faded");

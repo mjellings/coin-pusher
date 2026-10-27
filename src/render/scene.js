@@ -4,8 +4,9 @@ import { bokehSprite, roomBackdrop } from "./textures.js";
 
 export function createRenderer(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.9;
   return renderer;
@@ -48,14 +49,15 @@ function arcadeEnvironment(renderer) {
 export function addLights(scene) {
   // Warm key light from above and in front, casting the soft shadows.
   const key = new THREE.DirectionalLight(0xffe0b8, 2.0);
-  key.position.set(3, 14, 8);
+  key.position.set(3, 18, 8);
+  key.target.position.set(0, 3, -3);
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
-  Object.assign(key.shadow.camera, { left: -7, right: 7, top: 9, bottom: -9, near: 2, far: 35 });
+  Object.assign(key.shadow.camera, { left: -7, right: 7, top: 11, bottom: -11, near: 2, far: 45 });
   key.shadow.bias = -0.0004;
   key.shadow.normalBias = 0.02;
   key.shadow.radius = 4;
-  scene.add(key);
+  scene.add(key, key.target);
 
   // Cool, soft fill from the opposite side so shadows never go black.
   const fill = new THREE.DirectionalLight(0xb8c8ff, 0.5);
@@ -70,9 +72,9 @@ export function addLights(scene) {
   scene.add(new THREE.HemisphereLight(0xffe8d0, 0x2a1020, 0.35));
 
   // A warm pool of light on the playfield.
-  const spot = new THREE.SpotLight(0xffcc88, 4, 20, Math.PI / 5, 0.6, 1.5);
-  spot.position.set(0, 9, 2);
-  spot.target.position.set(0, 0, -0.5);
+  const spot = new THREE.SpotLight(0xffcc88, 4, 24, Math.PI / 4.5, 0.6, 1.5);
+  spot.position.set(0, 12, 3);
+  spot.target.position.set(0, 1.5, -2.5);
   scene.add(spot, spot.target);
 
   return { key };
@@ -137,9 +139,10 @@ export function createCamera() {
 export function frameCamera(camera, width, height) {
   camera.aspect = width / height;
   const halfFovTan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-  const distance = Math.max(12.5, (BOARD.halfWidth + 1.4) / (halfFovTan * camera.aspect));
-  const position = new THREE.Vector3(0, distance * 0.8, BOARD.frontZ + distance * 0.66);
-  const target = new THREE.Vector3(0, 1.4, -1.8);
+  // The machine is tall, so on wide screens the height decides how far back to stand.
+  const distance = Math.max(21, (BOARD.halfWidth + 1.4) / (halfFovTan * camera.aspect));
+  const position = new THREE.Vector3(0, 4.4 + distance * 0.45, BOARD.frontZ + distance * 0.88);
+  const target = new THREE.Vector3(0, 4.4, -3);
   camera.position.copy(position);
   camera.lookAt(target);
   camera.updateProjectionMatrix();

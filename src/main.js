@@ -5,12 +5,11 @@ import "@fontsource/rajdhani/600.css";
 import "@fontsource/rajdhani/700.css";
 import "./style.css";
 import * as THREE from "three";
-import { createGame, BOARD, DROP } from "./game.js";
+import { createGame, BOARD, PLINKO } from "./game.js";
 import { createRenderer, createScene, createCamera, frameCamera, addLights, addBokeh } from "./render/scene.js";
 import { buildCabinet } from "./render/cabinet.js";
-import { createPieces, createAimGuide } from "./render/pieces.js";
+import { createPieces, createSlotGhost } from "./render/pieces.js";
 import { createParticles, createCameraShake } from "./render/effects.js";
-import { createPostProcessing } from "./render/post.js";
 import { createAudio } from "./audio.js";
 import { createHud, loadSettings, saveSettings } from "./hud.js";
 
@@ -28,33 +27,24 @@ await Promise.all([
 const renderer = createRenderer(canvas);
 const scene = createScene(renderer);
 const camera = createCamera();
-const { key: keyLight } = addLights(scene);
+addLights(scene);
 const updateBokeh = addBokeh(scene);
 const cabinet = buildCabinet(scene);
 const pieces = createPieces(scene);
-const aim = createAimGuide(scene);
+const ghost = createSlotGhost(scene);
 const particles = createParticles(scene);
 const shake = createCameraShake(camera);
-const post = createPostProcessing(renderer, scene, camera);
 const audio = createAudio({ muted: settings.muted });
 const hud = createHud();
 
-function applyQuality() {
-  keyLight.shadow.mapSize.setScalar(settings.quality === "high" ? 2048 : 1024);
-  keyLight.shadow.map?.dispose();
-  keyLight.shadow.map = null;
-  post.setQuality(settings.quality, window.innerWidth, window.innerHeight);
-  hud.setQuality(settings.quality);
-}
-
 function resize() {
-  const { position, target } = frameCamera(camera, window.innerWidth, window.innerHeight);
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  renderer.setSize(width, height, false);
+  const { position, target } = frameCamera(camera, width, height);
   shake.setRest(position, target);
-  post.resize(window.innerWidth, window.innerHeight);
-  particles.setPixelScale(window.innerHeight * renderer.getPixelRatio());
+  particles.setPixelScale(height * renderer.getPixelRatio());
 }
-
-applyQuality();
 resize();
 window.addEventListener("resize", resize);
 
@@ -82,6 +72,11 @@ game.on((event) => {
   switch (event.type) {
     case "drop":
       audio.drop();
+      cabinet.flashSlot(event.slot);
+      break;
+    case "peg":
+      audio.peg(event.speed, event.y);
+      if (event.speed > 3) particles.sparkle(event.x, event.y - 0.1, event.z + 0.25, 0.3);
       break;
     case "land":
       audio.land(event.speed);
@@ -102,7 +97,7 @@ game.on((event) => {
     }
     case "bonus": {
       audio.bonus();
-      const [sx, sy] = toScreen(event.x, DROP.y + 1.5, DROP.z);
+      const [sx, sy] = toScreen(event.x, event.y, event.z);
       hud.popup(event.kind === "gem" ? "GEM! +10" : "PRIZE COIN! ×5", sx, sy, { kind: event.kind, banner: true });
       break;
     }
@@ -117,26 +112,45 @@ hud.bank.render();
 hud.won.render();
 hud.setMuted(settings.muted);
 
+// Aiming picks the slot nearest to where the pointer crosses the peg board.
 const raycaster = new THREE.Raycaster();
-const dropPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -DROP.y);
+const boardPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -PLINKO.z);
 const pointer = new THREE.Vector2();
 const hit = new THREE.Vector3();
+let slot = 1;
+
+function selectSlot(index) {
+  slot = THREE.MathUtils.clamp(index, 0, PLINKO.slots.length - 1);
+  cabinet.setSelectedSlot(slot);
+}
+selectSlot(slot);
 
 function aimAt(event) {
   const rect = canvas.getBoundingClientRect();
   pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
   raycaster.setFromCamera(pointer, camera);
-  if (raycaster.ray.intersectPlane(dropPlane, hit)) {
-    aim.x = THREE.MathUtils.clamp(hit.x, DROP.minX, DROP.maxX);
-  }
+  if (raycaster.ray.intersectPlane(boardPlane, hit)) selectSlot(game.nearestSlot(hit.x));
 }
 
 let drops = 0;
+function dropCoin() {
+  audio.unlock();
+  if (game.drop(slot) && ++drops === 3) hud.fadeHint();
+}
+
 canvas.addEventListener("pointermove", aimAt);
 canvas.addEventListener("pointerdown", (event) => {
-  audio.unlock();
   aimAt(event);
-  if (game.drop(aim.x) && ++drops === 3) hud.fadeHint();
+  dropCoin();
+});
+// Keyboard: arrow keys pick a slot, space or enter drops.
+window.addEventListener("keydown", (event) => {
+  if (event.target instanceof HTMLButtonElement) return;
+  if (event.key === "ArrowLeft") selectSlot(slot - 1);
+  else if (event.key === "ArrowRight") selectSlot(slot + 1);
+  else if (event.key === " " || event.key === "Enter") dropCoin();
+  else return;
+  event.preventDefault();
 });
 hud.refill.addEventListener("click", () => {
   audio.unlock();
@@ -149,58 +163,24 @@ hud.muteButton.addEventListener("click", () => {
   hud.setMuted(settings.muted);
   saveSettings(settings);
 });
-hud.qualityButton.addEventListener("click", () => {
-  settings.quality = settings.quality === "high" ? "low" : "high";
-  settings.qualityChosen = true;
-  applyQuality();
-  resize();
-  saveSettings(settings);
-});
 
 document.getElementById("loading").classList.add("done");
-
-// If High can't hold a smooth frame rate in the first few seconds, drop to Low automatically,
-// unless the player has picked a quality themselves.
-const frameWatch = { frames: 0, time: 0, checks: 0 };
-function watchFrameRate(dt) {
-  if (settings.qualityChosen || settings.quality !== "high" || frameWatch.checks >= 3) return;
-  frameWatch.frames++;
-  frameWatch.time += dt;
-  if (frameWatch.time < 2) return;
-  const fps = frameWatch.frames / frameWatch.time;
-  frameWatch.frames = 0;
-  frameWatch.time = 0;
-  // The first sample includes start-up hitches, so only act on later ones.
-  if (frameWatch.checks++ > 0 && fps < 45) {
-    settings.quality = "low";
-    applyQuality();
-    resize();
-    saveSettings(settings);
-  }
-}
 
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.1);
   const time = clock.elapsedTime;
-  watchFrameRate(dt);
   game.update(dt);
   if (pendingWin && performance.now() - pendingWin.at > WIN_GROUP_SECONDS * 1000) flushWin();
 
   pieces.sync(game.pieces, time);
-  cabinet.pusher.position.copy(game.pusher.translation());
-  cabinet.update(time);
-  aim.update({
-    time,
-    landingY: game.landingHeight(aim.x),
-    ready: game.canDrop(),
-    visible: game.bank > 0,
-    camera,
-  });
+  game.pushers.forEach(({ body }, i) => cabinet.pushers[i].position.copy(body.translation()));
+  cabinet.update(time, dt);
+  ghost.update({ time, dt, slotX: PLINKO.slots[slot], ready: game.canDrop(), visible: game.bank > 0 });
   particles.update(dt);
   updateBokeh(time);
   shake.update(dt, time);
   hud.update(dt);
   audio.update(game.pusherSpeed());
-  post.render();
+  renderer.render(scene, camera);
 });
