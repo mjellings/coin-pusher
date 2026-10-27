@@ -1,9 +1,10 @@
 import * as THREE from "three";
-import { BOARD, PUSHER, BACK_WALL } from "../game.js";
-import { brushedMetal, signTexture } from "./textures.js";
+import { BOARD, SHELF, PUSHERS, UPPER_WALL, PLINKO, PEGS, DEFLECTORS } from "../game.js";
+import { brushedMetal, signTexture, pegBoardTexture } from "./textures.js";
 
-const SIGN_TOP = 5.6;
-const BACK_WALL_TOP = 7;
+const SIGN_BOTTOM = PLINKO.topY + 0.75;
+const SIGN_TOP = SIGN_BOTTOM + 1.85;
+const BACK_TOP = SIGN_TOP + 0.5;
 
 export function buildCabinet(scene) {
   const { halfWidth, frontZ, backZ, wallHeight, winHalfWidth } = BOARD;
@@ -26,6 +27,13 @@ export function buildCabinet(scene) {
       roughnessMap: brushed,
       envMapIntensity: 1.8,
     }),
+    pusher: new THREE.MeshPhysicalMaterial({
+      color: 0x8c929c,
+      metalness: 1,
+      roughness: 0.6,
+      roughnessMap: brushed,
+      envMapIntensity: 1.2,
+    }),
     lacquer: new THREE.MeshPhysicalMaterial({
       color: 0x1a0a14,
       roughness: 0.35,
@@ -43,13 +51,8 @@ export function buildCabinet(scene) {
       depthWrite: false,
       side: THREE.DoubleSide,
     }),
-    pusher: new THREE.MeshPhysicalMaterial({
-      color: 0x8c929c,
-      metalness: 1,
-      roughness: 0.6,
-      roughnessMap: brushed,
-      envMapIntensity: 1.2,
-    }),
+    pegBoard: new THREE.MeshStandardMaterial({ map: pegBoardTexture(), roughness: 0.5, metalness: 0.2 }),
+    peg: new THREE.MeshStandardMaterial({ color: 0xffd27a, metalness: 1, roughness: 0.25, emissive: 0x6a4210, emissiveIntensity: 0.6 }),
     tray: new THREE.MeshStandardMaterial({ color: 0xc8902c, roughness: 0.3, metalness: 1 }),
     gutter: new THREE.MeshStandardMaterial({ color: 0x0c0508, roughness: 0.8 }),
   };
@@ -63,9 +66,23 @@ export function buildCabinet(scene) {
     return mesh;
   };
 
-  // Playfield and the cabinet body underneath it.
+  // Lower playfield and the cabinet body underneath it.
   box(halfWidth * 2, 1, length, materials.playfield, 0, -0.5, midZ);
   box(halfWidth * 2 + 1.4, 6, length + 1.6, materials.lacquer, 0, -4, midZ + 0.3, { cast: false });
+
+  // The shelf, with the upper playfield on top and an LED strip along its front edge.
+  const shelfBottom = PUSHERS[0].height + SHELF.gap;
+  const shelfDepth = SHELF.frontZ - backZ;
+  const shelfMidZ = backZ + shelfDepth / 2;
+  box(halfWidth * 2, SHELF.topY - shelfBottom - 0.1, shelfDepth, materials.lacquer, 0, (shelfBottom + SHELF.topY - 0.1) / 2, shelfMidZ);
+  box(halfWidth * 2, 0.1, shelfDepth, materials.playfield, 0, SHELF.topY - 0.05, shelfMidZ);
+  box(halfWidth * 2, 0.08, 0.1, materials.chrome, 0, SHELF.topY - 0.04, SHELF.frontZ - 0.03, { cast: false });
+  const shelfLed = new THREE.Mesh(
+    new THREE.BoxGeometry(halfWidth * 2, 0.06, 0.04),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(0.4, 2.2, 3) }),
+  );
+  shelfLed.position.set(0, SHELF.topY - 0.25, SHELF.frontZ + 0.02);
+  scene.add(shelfLed);
 
   for (const side of [-1, 1]) {
     const x = side * (halfWidth + 0.25);
@@ -78,25 +95,25 @@ export function buildCabinet(scene) {
     box(0.6, 1.4, length, materials.lacquer, side * (halfWidth + 0.3), 0.5, midZ, { cast: false });
   }
 
-  // Back wall, rising above the glass to carry the sign.
-  const wallBottom = PUSHER.height + BACK_WALL.gap;
-  const backWallHeight = BACK_WALL_TOP - wallBottom;
+  // The back wall above the upper pusher, rising past the glass to carry the sign.
+  const backHeight = BACK_TOP - UPPER_WALL.bottomY;
   box(
     halfWidth * 2 + 1.4,
-    backWallHeight,
-    BACK_WALL.thickness,
+    backHeight,
+    UPPER_WALL.thickness,
     materials.lacquer,
     0,
-    wallBottom + backWallHeight / 2,
-    BACK_WALL.frontZ - BACK_WALL.thickness / 2,
+    UPPER_WALL.bottomY + backHeight / 2,
+    UPPER_WALL.frontZ - UPPER_WALL.thickness / 2,
   );
-
   const sign = new THREE.Mesh(
     new THREE.PlaneGeometry(7.4, 1.85),
     new THREE.MeshBasicMaterial({ map: signTexture(), color: new THREE.Color(1.3, 1.3, 1.3) }),
   );
-  sign.position.set(0, SIGN_TOP - 1.05, BACK_WALL.frontZ + 0.01);
+  sign.position.set(0, (SIGN_BOTTOM + SIGN_TOP) / 2, UPPER_WALL.frontZ + 0.01);
   scene.add(sign);
+
+  const slots = buildPegBoard(scene, materials, box);
 
   // Win tray below the front edge, with dark side gutters where coins are lost.
   box(winHalfWidth * 2, 0.3, 3, materials.tray, 0, -2.4, frontZ + 1.2);
@@ -106,20 +123,21 @@ export function buildCabinet(scene) {
     box(0.08, 0.7, 3, materials.chrome, side * winHalfWidth, -2.15, frontZ + 1.2);
   }
 
-  // Pusher, with a colour-cycling LED strip along its front edge.
-  const pusher = box(halfWidth * 2 - 0.04, PUSHER.height, PUSHER.depth, materials.pusher, 0, 0, 0);
-  const pusherLed = new THREE.Mesh(
-    new THREE.BoxGeometry(halfWidth * 2 - 0.1, 0.1, 0.04),
-    new THREE.MeshBasicMaterial({ color: 0xff3fb4 }),
-  );
-  pusherLed.position.set(0, PUSHER.height / 2 - 0.12, PUSHER.depth / 2 + 0.02);
-  pusher.add(pusherLed);
-  const pusherLedLow = pusherLed.clone();
-  pusherLedLow.material = pusherLed.material;
-  pusherLedLow.position.y = -PUSHER.height / 2 + 0.15;
-  pusher.add(pusherLedLow);
+  // Both pushers, each with a colour-cycling LED strip along its front edge.
+  const ledMaterials = [];
+  const pushers = PUSHERS.map((config) => {
+    const mesh = box(halfWidth * 2 - 0.04, config.height, config.depth, materials.pusher, 0, 0, 0);
+    const led = new THREE.MeshBasicMaterial({ color: 0xff3fb4 });
+    ledMaterials.push(led);
+    for (const y of [config.height / 2 - 0.12, -config.height / 2 + 0.15]) {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(halfWidth * 2 - 0.1, 0.08, 0.04), led);
+      strip.position.set(0, y, config.depth / 2 + 0.02);
+      mesh.add(strip);
+    }
+    return mesh;
+  });
 
-  // A cyan LED strip under the front lip of the playfield.
+  // A cyan LED strip under the front lip of the lower playfield.
   const lip = new THREE.Mesh(
     new THREE.BoxGeometry(halfWidth * 2, 0.06, 0.06),
     new THREE.MeshBasicMaterial({ color: new THREE.Color(0.4, 2.2, 3) }),
@@ -131,18 +149,95 @@ export function buildCabinet(scene) {
   const ledColor = new THREE.Color();
 
   return {
-    pusher,
-    update(time) {
-      ledColor.setHSL((time * 0.08) % 1, 1, 0.55).multiplyScalar(2.4);
-      pusherLed.material.color.copy(ledColor);
+    pushers,
+    setSelectedSlot: slots.select,
+    flashSlot: slots.flash,
+    update(time, dt) {
+      ledMaterials.forEach((material, i) => {
+        ledColor.setHSL((time * 0.08 + i * 0.5) % 1, 1, 0.55).multiplyScalar(2.4);
+        material.color.copy(ledColor);
+      });
       marquee(time);
+      slots.update(time, dt);
+    },
+  };
+}
+
+// The plinko board: a printed back plate, gold pegs, chrome deflectors, front glass, and a header
+// along the top with a lit opening for each slot.
+function buildPegBoard(scene, materials, box) {
+  const { halfWidth } = BOARD;
+  const height = PLINKO.topY - PLINKO.bottomY;
+  const midY = PLINKO.bottomY + height / 2;
+
+  const plate = box(halfWidth * 2, height, 0.1, materials.pegBoard, 0, midY, PLINKO.z - PLINKO.halfGap - 0.05, { cast: false });
+  plate.receiveShadow = true;
+  box(halfWidth * 2, height, 0.02, materials.glass, 0, midY, PLINKO.z + PLINKO.halfGap + 0.05, { cast: false, receive: false });
+  // Chrome trim along the bottom edge of the board.
+  box(halfWidth * 2, 0.1, PLINKO.halfGap * 2 + 0.3, materials.chrome, 0, PLINKO.bottomY - 0.05, PLINKO.z);
+
+  const pegs = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(PLINKO.pegRadius, PLINKO.pegRadius, PLINKO.halfGap * 2 + 0.1, 16),
+    materials.peg,
+    PEGS.length,
+  );
+  const matrix = new THREE.Matrix4();
+  const rotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
+  const unit = new THREE.Vector3(1, 1, 1);
+  PEGS.forEach((peg, i) => {
+    pegs.setMatrixAt(i, matrix.compose(new THREE.Vector3(peg.x, peg.y, PLINKO.z), rotation, unit));
+  });
+  pegs.castShadow = true;
+  scene.add(pegs);
+
+  for (const deflector of DEFLECTORS) {
+    const mesh = box(1, 0.12, PLINKO.halfGap * 2 + 0.1, materials.chrome, deflector.x, deflector.y, PLINKO.z);
+    mesh.rotation.z = (deflector.side * Math.PI) / 4;
+  }
+
+  // Header with the slot openings.
+  const headerY = PLINKO.topY + 0.3;
+  box(halfWidth * 2 + 0.2, 0.6, PLINKO.halfGap * 2 + 0.5, materials.lacquer, 0, headerY, PLINKO.z);
+  const slotMaterials = PLINKO.slots.map(() => new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  PLINKO.slots.forEach((x, i) => {
+    const light = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.14, 0.04), slotMaterials[i]);
+    light.position.set(x, headerY, PLINKO.z + PLINKO.halfGap + 0.27);
+    scene.add(light);
+  });
+
+  // A glowing arrow above the chosen slot.
+  const arrow = new THREE.Mesh(
+    new THREE.ConeGeometry(0.22, 0.4, 3),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 2.2, 0.6) }),
+  );
+  arrow.rotation.x = Math.PI;
+  scene.add(arrow);
+
+  let selected = 1;
+  const flashes = PLINKO.slots.map(() => 0);
+  const idle = new THREE.Color(0.5, 0.25, 0.6);
+  const active = new THREE.Color(3, 2.1, 0.7);
+  const flash = new THREE.Color(3, 3, 3);
+  return {
+    select(i) {
+      selected = i;
+    },
+    flash(i) {
+      flashes[i] = 1;
+    },
+    update(time, dt) {
+      slotMaterials.forEach((material, i) => {
+        flashes[i] = Math.max(0, flashes[i] - dt * 4);
+        material.color.copy(i === selected ? active : idle).lerp(flash, flashes[i]);
+      });
+      arrow.position.set(PLINKO.slots[selected], headerY + 0.65 + Math.sin(time * 5) * 0.08, PLINKO.z + 0.2);
     },
   };
 }
 
 // Rows of bulbs around the cabinet with a chasing pattern, drawn as one instanced mesh.
 function buildMarquee(scene) {
-  const { halfWidth, frontZ } = BOARD;
+  const { halfWidth, frontZ, wallHeight } = BOARD;
   const points = [];
   const line = (from, to, count) => {
     for (let i = 0; i < count; i++) {
@@ -150,21 +245,19 @@ function buildMarquee(scene) {
       points.push(new THREE.Vector3().lerpVectors(from, to, t));
     }
   };
-  const top = BOARD.wallHeight + 0.26;
-  const signZ = BACK_WALL.frontZ + 0.06;
-  // Up the front corner posts, along the top rails, then round the sign. One continuous path,
-  // so the chase runs all the way around.
-  line(new THREE.Vector3(-halfWidth - 0.25, 1.6, frontZ + 0.2), new THREE.Vector3(-halfWidth - 0.25, top - 0.3, frontZ + 0.2), 9);
-  line(new THREE.Vector3(-halfWidth - 0.25, top, frontZ), new THREE.Vector3(-halfWidth - 0.25, top, BACK_WALL.frontZ + 0.3), 14);
-  line(new THREE.Vector3(-halfWidth - 0.4, top + 0.25, signZ), new THREE.Vector3(halfWidth + 0.4, top + 0.25, signZ), 20);
-  line(new THREE.Vector3(halfWidth + 0.25, top, BACK_WALL.frontZ + 0.3), new THREE.Vector3(halfWidth + 0.25, top, frontZ), 14);
-  line(new THREE.Vector3(halfWidth + 0.25, top - 0.3, frontZ + 0.2), new THREE.Vector3(halfWidth + 0.25, 1.6, frontZ + 0.2), 9);
+  const top = wallHeight + 0.26;
+  const backZ = UPPER_WALL.frontZ + 0.06;
+  // Up the front corner posts and along the top rails. One continuous path, so the chase runs
+  // all the way round.
+  line(new THREE.Vector3(-halfWidth - 0.25, 1.6, frontZ + 0.2), new THREE.Vector3(-halfWidth - 0.25, top - 0.3, frontZ + 0.2), 16);
+  line(new THREE.Vector3(-halfWidth - 0.25, top, frontZ), new THREE.Vector3(-halfWidth - 0.25, top, UPPER_WALL.frontZ + 0.3), 18);
+  line(new THREE.Vector3(halfWidth + 0.25, top, UPPER_WALL.frontZ + 0.3), new THREE.Vector3(halfWidth + 0.25, top, frontZ), 18);
+  line(new THREE.Vector3(halfWidth + 0.25, top - 0.3, frontZ + 0.2), new THREE.Vector3(halfWidth + 0.25, 1.6, frontZ + 0.2), 16);
   // A frame of bulbs round the sign.
-  const signBottom = SIGN_TOP - 2.1;
-  line(new THREE.Vector3(-3.9, SIGN_TOP, signZ), new THREE.Vector3(3.9, SIGN_TOP, signZ), 19);
-  line(new THREE.Vector3(3.9, SIGN_TOP - 0.45, signZ), new THREE.Vector3(3.9, signBottom + 0.45, signZ), 3);
-  line(new THREE.Vector3(3.9, signBottom, signZ), new THREE.Vector3(-3.9, signBottom, signZ), 19);
-  line(new THREE.Vector3(-3.9, signBottom + 0.45, signZ), new THREE.Vector3(-3.9, SIGN_TOP - 0.45, signZ), 3);
+  line(new THREE.Vector3(-3.9, SIGN_TOP + 0.1, backZ), new THREE.Vector3(3.9, SIGN_TOP + 0.1, backZ), 19);
+  line(new THREE.Vector3(3.9, SIGN_TOP - 0.35, backZ), new THREE.Vector3(3.9, SIGN_BOTTOM + 0.25, backZ), 3);
+  line(new THREE.Vector3(3.9, SIGN_BOTTOM - 0.1, backZ), new THREE.Vector3(-3.9, SIGN_BOTTOM - 0.1, backZ), 19);
+  line(new THREE.Vector3(-3.9, SIGN_BOTTOM + 0.25, backZ), new THREE.Vector3(-3.9, SIGN_TOP - 0.35, backZ), 3);
   // A row across the front of the cabinet, below the win tray.
   const frontRow = points.length;
   line(new THREE.Vector3(-halfWidth - 0.4, -1.1, frontZ + 2.75), new THREE.Vector3(halfWidth + 0.4, -1.1, frontZ + 2.75), 17);
@@ -194,8 +287,7 @@ function buildMarquee(scene) {
     const step = Math.floor(time * 10);
     for (let i = 0; i < points.length; i++) {
       if (i >= frontRow) {
-        const j = i - frontRow;
-        color.copy(palette[(j + Math.floor(time * 3)) % palette.length]);
+        color.copy(palette[(i - frontRow + Math.floor(time * 3)) % palette.length]);
       } else {
         color.copy((i + step) % 4 === 0 ? warm : dim);
         if ((i + step) % 4 === 1) color.lerp(warm, 0.35);

@@ -167,3 +167,36 @@ export function roomBackdrop() {
   ctx.fillRect(0, 0, 16, 512);
   return texture(el, { srgb: true });
 }
+
+// Back plate of the peg board: deep violet with a sunburst and a fine dot grid, like a
+// printed arcade playfield.
+export function pegBoardTexture() {
+  const [el, ctx] = canvas(512, 384);
+  const g = ctx.createRadialGradient(256, 384, 20, 256, 300, 420);
+  g.addColorStop(0, "#5a1f6e");
+  g.addColorStop(1, "#14081f");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 512, 384);
+  ctx.globalAlpha = 0.12;
+  ctx.fillStyle = "#ffcf5a";
+  for (let i = 0; i < 24; i += 2) {
+    const a0 = Math.PI + (i / 24) * Math.PI;
+    const a1 = Math.PI + ((i + 1) / 24) * Math.PI;
+    ctx.beginPath();
+    ctx.moveTo(256, 384);
+    ctx.arc(256, 384, 600, a0, a1);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = "#ff9ad8";
+  for (let y = 12; y < 384; y += 24) {
+    for (let x = 12; x < 512; x += 24) {
+      ctx.beginPath();
+      ctx.arc(x, y, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+  return texture(el, { srgb: true });
+}

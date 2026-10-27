@@ -10,6 +10,7 @@ export function createAudio({ muted = false } = {}) {
   let noise = null;
   let isMuted = muted;
   let lastClinkAt = 0;
+  let lastPingAt = 0;
 
   function unlock() {
     if (ctx) {
@@ -118,6 +119,17 @@ export function createAudio({ muted = false } = {}) {
       if (now - lastClinkAt < 0.035) return;
       lastClinkAt = now;
       clink(speed / 10);
+    },
+    // A bright plink as a coin bounces off a peg, rising in pitch further down the board.
+    peg(speed, height) {
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      if (now - lastPingAt < 0.03) return;
+      lastPingAt = now;
+      const freq = 1400 + (10 - height) * 140 + Math.random() * 120;
+      const level = 0.03 + 0.04 * Math.min(1, speed / 8);
+      tone(freq, { type: "triangle", decay: 0.09, level });
+      tone(freq * 2.01, { type: "sine", decay: 0.06, level: level * 0.4 });
     },
     win(value, kind) {
       if (!ctx) return;
