@@ -11,7 +11,7 @@ export const BOARD = {
   wallHeight: 6,
   // Coins that fall off the front edge within this distance of the centre are won;
   // the rest drop into the side gutters and are lost, like a real machine.
-  winHalfWidth: 3,
+  winHalfWidth: 2.8,
 };
 
 export const PUSHER = {
@@ -34,11 +34,38 @@ export const DROP = {
   cooldown: 0.2,
 };
 
+// Everything that can sit on the board. Coins are the normal currency; prize coins and
+// gems turn up now and then and pay out more when they're pushed off.
+export const KINDS = {
+  coin: { value: 1 },
+  prize: { value: 5, radius: 0.85, halfHeight: 0.11 },
+  gem: { value: 10 },
+};
+
+// Points of the gem's convex hull: a flat table on top, a hexagonal girdle and a pointed base.
+export const GEM_POINTS = (() => {
+  const points = [];
+  const ring = (radius, y, offset = 0) => {
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + offset;
+      points.push(Math.cos(a) * radius, y, Math.sin(a) * radius);
+    }
+  };
+  ring(0.32, 0.28);
+  ring(0.55, 0.08, Math.PI / 6);
+  points.push(0, -0.36, 0);
+  return new Float32Array(points);
+})();
+
 const TIMESTEP = 1 / 120;
 const MAX_STEPS_PER_FRAME = 6;
 const FALL_LIMIT_Y = -3;
 const START_BANK = 50;
 const PREFILL_COINS = 70;
+// Keeps the physics cheap: no more drops once this many pieces are on the board.
+export const MAX_PIECES = 260;
+const BONUS_CHANCE = 0.03;
+const LAND_SPEED = 2.5;
 
 export async function createGame() {
   await RAPIER.init();
@@ -51,7 +78,7 @@ class Game {
   constructor() {
     this.world = new RAPIER.World({ x: 0, y: -30, z: 0 });
     this.world.timestep = TIMESTEP;
-    this.coins = [];
+    this.pieces = [];
     this.time = 0;
     this.accumulator = 0;
     this.lastDropAt = -Infinity;
@@ -108,22 +135,24 @@ class Game {
     return this.pusherFrontZ(t) - PUSHER.depth / 2;
   }
 
-  spawnCoin(x, y, z, tilt = 0.3) {
-    const q = randomTilt(tilt);
+  // How fast the pusher is moving right now, from 0 (turning round) to 1 (full speed).
+  pusherSpeed() {
+    return Math.abs(Math.cos((2 * Math.PI * this.time) / PUSHER.period));
+  }
+
+  spawn(kind, x, y, z, tilt = 0.3) {
     const body = this.world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic()
         .setTranslation(x, y, z)
-        .setRotation(q)
+        .setRotation(randomTilt(tilt))
         .setLinearDamping(0.05)
         .setAngularDamping(0.8)
         .setCcdEnabled(true),
     );
-    this.world.createCollider(
-      RAPIER.ColliderDesc.cylinder(COIN_HALF_HEIGHT, COIN_RADIUS).setFriction(0.4).setRestitution(0.05).setDensity(1),
-      body,
-    );
-    this.coins.push(body);
-    return body;
+    this.world.createCollider(colliderFor(kind).setFriction(0.4).setRestitution(0.15).setDensity(1), body);
+    const piece = { kind, value: KINDS[kind].value, body, prevVy: 0, lastLandAt: -Infinity };
+    this.pieces.push(piece);
+    return piece;
   }
 
   // Lay coins flat in loose layers and let them settle, so the game starts with a full, stable playfield.
@@ -139,30 +168,46 @@ class Game {
       const x = Math.min(DROP.maxX, DROP.minX + (i % columns) * spacing + offset);
       const z = Math.min(maxZ, minZ + (Math.floor(i / columns) % rows) * spacing + offset);
       const jitter = () => (Math.random() - 0.5) * 0.15;
-      this.spawnCoin(x + jitter(), 1.3 + layer * 0.4, z + jitter(), 0.05);
+      this.spawn("coin", x + jitter(), 1.3 + layer * 0.4, z + jitter(), 0.05);
     }
+    // One prize coin on the board from the start, so there's something to aim for.
+    this.spawn("prize", (Math.random() - 0.5) * 3, 2.5, 0.3, 0.05);
     this.simulate(4, { scoring: false });
     // Anything that fell off while settling doesn't count.
-    this.removeFallenCoins(() => {});
+    this.removeFallenPieces(() => {});
   }
 
   canDrop() {
-    return this.bank > 0 && this.time - this.lastDropAt >= DROP.cooldown;
+    return this.bank > 0 && this.pieces.length < MAX_PIECES && this.time - this.lastDropAt >= DROP.cooldown;
   }
 
   drop(x) {
     if (!this.canDrop()) return false;
-    const clampedX = Math.min(DROP.maxX, Math.max(DROP.minX, x));
+    const clampedX = clampDropX(x);
     this.bank -= 1;
     this.lastDropAt = this.time;
-    this.spawnCoin(clampedX, DROP.y, DROP.z);
-    this.emit({ type: "drop" });
+    this.spawn("coin", clampedX, DROP.y, DROP.z);
+    this.emit({ type: "drop", x: clampedX });
+    if (Math.random() < BONUS_CHANCE) this.spawnBonus();
     return true;
+  }
+
+  spawnBonus(kind = Math.random() < 0.4 ? "gem" : "prize") {
+    const x = DROP.minX + Math.random() * (DROP.maxX - DROP.minX);
+    this.spawn(kind, x, DROP.y + 1.5, DROP.z, 0.6);
+    this.emit({ type: "bonus", kind, x });
   }
 
   refill(amount = 20) {
     this.bank += amount;
     this.emit({ type: "bank" });
+  }
+
+  // Where a coin dropped at this x would first land, for the aim guide.
+  landingHeight(x) {
+    const ray = new RAPIER.Ray({ x: clampDropX(x), y: DROP.y, z: DROP.z }, { x: 0, y: -1, z: 0 });
+    const hit = this.world.castRay(ray, DROP.y + 1, true);
+    return hit ? DROP.y - hit.timeOfImpact : PUSHER.height;
   }
 
   update(dt) {
@@ -183,27 +228,49 @@ class Game {
     const p = this.pusher.translation();
     this.pusher.setNextKinematicTranslation({ x: p.x, y: p.y, z: this.pusherCenterZ(this.time) });
     this.world.step();
-    if (scoring) {
-      this.removeFallenCoins((coin) => {
-        if (coin.z > BOARD.frontZ && Math.abs(coin.x) < BOARD.winHalfWidth) {
-          this.bank += 1;
-          this.won += 1;
-          this.emit({ type: "win" });
-        } else {
-          this.emit({ type: "lost" });
+    if (!scoring) return;
+    this.detectLandings();
+    this.removeFallenPieces((piece, pos) => {
+      if (pos.z > BOARD.frontZ && Math.abs(pos.x) < BOARD.winHalfWidth) {
+        this.bank += piece.value;
+        this.won += piece.value;
+        this.emit({ type: "win", kind: piece.kind, value: piece.value, x: pos.x, z: pos.z });
+      } else {
+        this.emit({ type: "lost", kind: piece.kind, x: pos.x, z: pos.z });
+      }
+    });
+  }
+
+  // A piece has landed when its fall is stopped sharply. Used for clinks and sparkles.
+  detectLandings() {
+    let events = 0;
+    for (const piece of this.pieces) {
+      const { body } = piece;
+      if (body.isSleeping()) {
+        piece.prevVy = 0;
+        continue;
+      }
+      const vy = body.linvel().y;
+      const impact = -piece.prevVy;
+      if (impact > LAND_SPEED && vy - piece.prevVy > LAND_SPEED * 0.8 && this.time - piece.lastLandAt > 0.12) {
+        piece.lastLandAt = this.time;
+        if (events++ < 4) {
+          const pos = body.translation();
+          this.emit({ type: "land", kind: piece.kind, speed: impact, x: pos.x, y: pos.y, z: pos.z });
         }
-      });
+      }
+      piece.prevVy = vy;
     }
   }
 
-  removeFallenCoins(onRemove) {
-    for (let i = this.coins.length - 1; i >= 0; i--) {
-      const body = this.coins[i];
-      const pos = body.translation();
+  removeFallenPieces(onRemove) {
+    for (let i = this.pieces.length - 1; i >= 0; i--) {
+      const piece = this.pieces[i];
+      const pos = piece.body.translation();
       if (pos.y < FALL_LIMIT_Y) {
-        onRemove(pos);
-        this.world.removeRigidBody(body);
-        this.coins.splice(i, 1);
+        onRemove(piece, pos);
+        this.world.removeRigidBody(piece.body);
+        this.pieces.splice(i, 1);
       }
     }
   }
@@ -216,6 +283,16 @@ class Game {
   emit(event) {
     for (const listener of this.listeners) listener(event);
   }
+}
+
+function colliderFor(kind) {
+  if (kind === "gem") return RAPIER.ColliderDesc.convexHull(GEM_POINTS);
+  if (kind === "prize") return RAPIER.ColliderDesc.cylinder(KINDS.prize.halfHeight, KINDS.prize.radius);
+  return RAPIER.ColliderDesc.cylinder(COIN_HALF_HEIGHT, COIN_RADIUS);
+}
+
+function clampDropX(x) {
+  return Math.min(DROP.maxX, Math.max(DROP.minX, x));
 }
 
 function randomTilt(amount) {
