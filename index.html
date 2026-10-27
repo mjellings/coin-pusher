@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>Coin Pusher</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+    <div id="hud">
+      <div class="stat"><span class="label">Coins</span><span id="bank">0</span></div>
+      <div class="stat"><span class="label">Won</span><span id="won">0</span></div>
+    </div>
+    <div id="hint">Move to aim, click or tap to drop a coin</div>
+    <button id="refill" hidden>Out of coins! Get 20 more</button>
+    <div id="loading">Loading…</div>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
