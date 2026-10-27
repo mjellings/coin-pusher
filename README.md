@@ -4,7 +4,7 @@ A 3D coin pusher game that runs in the browser, built with [Three.js](https://th
 
 ## How to play
 
-The machine has two tiers, each with its own moving pusher. Move the mouse (or your finger) to pick one of the four slots at the top, then click or tap to drop a coin. On a keyboard, the arrow keys pick a slot and Space drops.
+The machine has two tiers, each with its own moving pusher. Move the mouse (or your finger) to pick one of the five slots at the top, then click or tap to drop a coin. On a keyboard, the arrow keys pick a slot and Space drops.
 
 Each coin bounces down the peg board onto the upper tier. The upper pusher shoves coins off its shelf onto the lower tier, and the lower pusher shoves them off the front. Coins that fall into the gold tray are won and go back into your stack. Coins that fall into the dark side gutters are lost.
 

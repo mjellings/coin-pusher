@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { BOARD, SHELF, PUSHERS, UPPER_WALL, PLINKO, PEGS, DEFLECTORS } from "../game.js";
+import { BOARD, SHELF, PUSHERS, UPPER_WALL, PLINKO, PEGS, DEFLECTORS, LIP_HALF_THICKNESS } from "../game.js";
 import { brushedMetal, signTexture, pegBoardTexture } from "./textures.js";
 
 const SIGN_BOTTOM = PLINKO.topY + 0.75;
@@ -127,6 +127,12 @@ export function buildCabinet(scene) {
   const ledMaterials = [];
   const pushers = PUSHERS.map((config) => {
     const mesh = box(halfWidth * 2 - 0.04, config.height, config.depth, materials.pusher, 0, 0, 0);
+    if (config.lip) {
+      const lip = new THREE.Mesh(new THREE.BoxGeometry(halfWidth * 2 - 0.04, LIP_HALF_THICKNESS * 2, config.lip), materials.chrome);
+      lip.position.set(0, config.height / 2 - LIP_HALF_THICKNESS, config.depth / 2 + config.lip / 2);
+      lip.castShadow = true;
+      mesh.add(lip);
+    }
     const led = new THREE.MeshBasicMaterial({ color: 0xff3fb4 });
     ledMaterials.push(led);
     for (const y of [config.height / 2 - 0.12, -config.height / 2 + 0.15]) {
@@ -200,7 +206,7 @@ function buildPegBoard(scene, materials, box) {
   box(halfWidth * 2 + 0.2, 0.6, PLINKO.halfGap * 2 + 0.5, materials.lacquer, 0, headerY, PLINKO.z);
   const slotMaterials = PLINKO.slots.map(() => new THREE.MeshBasicMaterial({ color: 0xffffff }));
   PLINKO.slots.forEach((x, i) => {
-    const light = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.14, 0.04), slotMaterials[i]);
+    const light = new THREE.Mesh(new THREE.BoxGeometry(1, 0.14, 0.04), slotMaterials[i]);
     light.position.set(x, headerY, PLINKO.z + PLINKO.halfGap + 0.27);
     scene.add(light);
   });
