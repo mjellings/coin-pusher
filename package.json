@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "0.14.0",
+    "@fontsource/orbitron": "^5.2.5",
+    "@fontsource/rajdhani": "^5.2.5",
     "three": "0.170.0"
   },
   "devDependencies": {
