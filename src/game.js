@@ -94,6 +94,13 @@ export const MAX_PIECES = 320;
 const BONUS_CHANCE = 0.03;
 const LAND_SPEED = 2.5;
 const PEG_HIT_SPEED = 1.5;
+// Collision groups, as (membership << 16) | filter. Coins inside the peg board don't collide with
+// each other, so a quick run of drops can't stack up and jam between the pegs; they still hit
+// the pegs, walls and everything else.
+const COIN_GROUP = 0x0001;
+const BOARD_COIN_GROUP = 0x0002;
+const NORMAL_GROUPS = (COIN_GROUP << 16) | 0xffff;
+const IN_BOARD_GROUPS = (BOARD_COIN_GROUP << 16) | (0xffff & ~(COIN_GROUP | BOARD_COIN_GROUP));
 export const LIP_HALF_THICKNESS = 0.05;
 
 export async function createGame() {
@@ -229,8 +236,11 @@ class Game {
         .setAngularDamping(0.8)
         .setCcdEnabled(true),
     );
-    this.world.createCollider(colliderFor(kind).setFriction(0.4).setRestitution(0.15).setDensity(1), body);
-    const piece = { kind, value: KINDS[kind].value, body, prevVy: 0, lastLandAt: -Infinity };
+    const collider = this.world.createCollider(
+      colliderFor(kind).setFriction(0.4).setRestitution(0.15).setDensity(1).setCollisionGroups(NORMAL_GROUPS),
+      body,
+    );
+    const piece = { kind, value: KINDS[kind].value, body, collider, prevVy: 0, lastLandAt: -Infinity, inBoard: false };
     this.pieces.push(piece);
     return piece;
   }
@@ -282,7 +292,8 @@ class Game {
 
   drop(slot) {
     if (!this.canDrop()) return false;
-    const x = PLINKO.slots[slot] + (Math.random() - 0.5) * 0.1;
+    // A little sideways jitter so coins never balance on the peg right under the slot.
+    const x = PLINKO.slots[slot] + (Math.random() < 0.5 ? -1 : 1) * (0.06 + Math.random() * 0.1);
     this.bank -= 1;
     this.lastDropAt = this.time;
     // Stand the coin on its edge (axis along z) so it fits between the peg board's back plate
@@ -290,7 +301,11 @@ class Game {
     const half = Math.random() * Math.PI;
     const [c, s] = [Math.cos(half), Math.sin(half)];
     const rotation = { x: Math.SQRT1_2 * c, y: Math.SQRT1_2 * s, z: Math.SQRT1_2 * s, w: Math.SQRT1_2 * c };
-    this.spawn("coin", x, PLINKO.slotY, PLINKO.z, { rotation });
+    // Coins in the board can overlap, so stagger their depth slightly to keep them from flickering.
+    const z = PLINKO.z + (Math.random() - 0.5) * 0.06;
+    const piece = this.spawn("coin", x, PLINKO.slotY, z, { rotation });
+    piece.inBoard = true;
+    piece.collider.setCollisionGroups(IN_BOARD_GROUPS);
     this.emit({ type: "drop", slot, x });
     if (Math.random() < BONUS_CHANCE) this.spawnBonus();
     return true;
@@ -364,18 +379,22 @@ class Game {
     });
   }
 
-  // A coin that comes to rest inside the peg board gets a gentle sideways nudge to free it.
+  // Coins in the peg board pass through each other. Once a coin has dropped clear of the board
+  // it collides with other coins again. One that comes to rest on a peg gets a sideways nudge.
   unstickCoins() {
     for (const piece of this.pieces) {
+      if (!piece.inBoard) continue;
       const pos = piece.body.translation();
-      if (pos.y < PLINKO.bottomY || Math.abs(pos.z - PLINKO.z) > 0.3) {
-        piece.stillFor = 0;
+      if (pos.y < PLINKO.bottomY - COIN_RADIUS - 0.05) {
+        piece.inBoard = false;
+        piece.collider.setCollisionGroups(NORMAL_GROUPS);
         continue;
       }
       const v = piece.body.linvel();
-      piece.stillFor = Math.hypot(v.x, v.y) < 0.2 ? (piece.stillFor ?? 0) + TIMESTEP : 0;
-      if (piece.stillFor > 1) {
-        piece.body.setLinvel({ x: (pos.x > 0 ? -1 : 1) * 2, y: 1, z: 0 }, true);
+      piece.stillFor = Math.hypot(v.x, v.y) < 0.3 ? (piece.stillFor ?? 0) + TIMESTEP : 0;
+      if (piece.stillFor > 0.5) {
+        const side = Math.abs(pos.x) < 0.05 ? (Math.random() < 0.5 ? -1 : 1) : -Math.sign(pos.x);
+        piece.body.setLinvel({ x: side * 2, y: 1, z: 0 }, true);
         piece.stillFor = 0;
       }
     }
