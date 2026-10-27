@@ -1,8 +1,8 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 
-// All sizes are in game units: a coin is 1.2 units across.
-export const COIN_RADIUS = 0.6;
-export const COIN_HALF_HEIGHT = 0.08;
+// All sizes are in game units: a coin is 0.9 units across.
+export const COIN_RADIUS = 0.45;
+export const COIN_HALF_HEIGHT = 0.06;
 
 // The machine has two tiers. Coins come in through slots at the top, bounce down a plinko
 // peg board onto the upper tier, get pushed off its edge onto the lower tier, and are won
@@ -25,7 +25,10 @@ export const PUSHERS = [
   // Lower tier: slides under the shelf.
   { height: 1, depth: 6, baseY: 0, minFrontZ: -2.5, maxFrontZ: 0, period: 4, phase: 0 },
   // Upper tier: rides on the shelf, out of step with the lower one.
-  { height: 0.8, depth: 5, baseY: SHELF.topY, minFrontZ: -7.3, maxFrontZ: -5.5, period: 5, phase: Math.PI },
+  // It pulls all the way back under its wall, so nothing can stay sitting on top of it. The lip
+  // overhangs its front edge near the top, so it catches coins standing on edge high up and
+  // tips them over instead of shoving them along upright.
+  { height: 0.8, depth: 5, baseY: SHELF.topY, minFrontZ: -8.45, maxFrontZ: -5.5, period: 5, phase: Math.PI, lip: 0.4 },
 ];
 
 // The wall above the upper pusher that scrapes coins off it as it pulls back.
@@ -34,15 +37,16 @@ export const UPPER_WALL = { frontZ: -8, thickness: 0.5, bottomY: SHELF.topY + PU
 // A vertical peg board the coins fall through edge-on, between a back plate and front glass.
 export const PLINKO = {
   z: -6.4,
-  halfGap: 0.13,
-  bottomY: 4.9,
-  topY: 10.45,
+  halfGap: 0.1,
+  bottomY: 4.5,
+  topY: 10.35,
   pegRadius: 0.09,
   // Pegs must sit far enough apart, across and diagonally, for a coin to pass between them.
-  rows: [8.85, 7.7, 6.55, 5.4],
-  pegSpacing: 2,
-  slots: [-3, -1, 1, 3],
-  slotY: 9.7,
+  // Listed from the top. The first row sits well below the slots so coins fall freely first.
+  rows: [8.4, 7.55, 6.7, 5.85, 5.0],
+  pegSpacing: 1.6,
+  slots: [-3.2, -1.6, 0, 1.6, 3.2],
+  slotY: 9.8,
 };
 
 export const DROP = { cooldown: 0.25 };
@@ -51,7 +55,7 @@ export const DROP = { cooldown: 0.25 };
 // gems turn up now and then and pay out more when they're pushed off.
 export const KINDS = {
   coin: { value: 1 },
-  prize: { value: 5, radius: 0.85, halfHeight: 0.11 },
+  prize: { value: 5, radius: 0.64, halfHeight: 0.083 },
   gem: { value: 10 },
 };
 
@@ -64,20 +68,21 @@ export const GEM_POINTS = (() => {
       points.push(Math.cos(a) * radius, y, Math.sin(a) * radius);
     }
   };
-  ring(0.32, 0.28);
-  ring(0.55, 0.08, Math.PI / 6);
-  points.push(0, -0.36, 0);
+  ring(0.24, 0.21);
+  ring(0.41, 0.06, Math.PI / 6);
+  points.push(0, -0.27, 0);
   return new Float32Array(points);
 })();
 
-// Peg positions, row by row. Rows alternate between three pegs and two, so a coin can't fall
-// straight through. The two-peg rows have a slanted deflector at each wall instead of an
-// outer peg, so coins can't get wedged against the glass.
+// Peg positions, row by row. Rows alternate between three pegs (under the middle slots) and
+// four (between the slots), so a coin can't fall straight through. The three-peg rows have a
+// slanted deflector at each wall instead of an outer peg, so coins can't get wedged against
+// the glass.
 export const PEGS = PLINKO.rows.flatMap((y, row) =>
-  (row % 2 === 0 ? [-2, 0, 2] : [-1, 1]).map((x) => ({ x: (x * PLINKO.pegSpacing) / 2, y })),
+  (row % 2 === 0 ? [-2, 0, 2] : [-3, -1, 1, 3]).map((x) => ({ x: (x * PLINKO.pegSpacing) / 2, y })),
 );
 export const DEFLECTORS = PLINKO.rows
-  .filter((_, row) => row % 2 === 1)
+  .filter((_, row) => row % 2 === 0)
   .flatMap((y) => [-1, 1].map((side) => ({ side, x: side * (BOARD.halfWidth - 0.3), y })));
 
 const TIMESTEP = 1 / 120;
@@ -85,10 +90,11 @@ const MAX_STEPS_PER_FRAME = 6;
 const FALL_LIMIT_Y = -3;
 const START_BANK = 50;
 // Keeps the physics cheap: no more drops once this many pieces are on the board.
-export const MAX_PIECES = 260;
+export const MAX_PIECES = 320;
 const BONUS_CHANCE = 0.03;
 const LAND_SPEED = 2.5;
 const PEG_HIT_SPEED = 1.5;
+export const LIP_HALF_THICKNESS = 0.05;
 
 export async function createGame() {
   await RAPIER.init();
@@ -187,6 +193,14 @@ class Game {
         RAPIER.ColliderDesc.cuboid(halfWidth - 0.02, config.height / 2, config.depth / 2).setFriction(0.5),
         body,
       );
+      if (config.lip) {
+        this.world.createCollider(
+          RAPIER.ColliderDesc.cuboid(halfWidth - 0.02, LIP_HALF_THICKNESS, config.lip / 2)
+            .setTranslation(0, config.height / 2 - LIP_HALF_THICKNESS, config.depth / 2 + config.lip / 2)
+            .setFriction(0.3),
+          body,
+        );
+      }
       return { config, body };
     });
   }
