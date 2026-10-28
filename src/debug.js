@@ -5,7 +5,7 @@ import { BONUSES } from "./bonuses.js";
 
 export const DEBUG = new URLSearchParams(location.search).has("debug");
 
-export function createDebugPanel({ game, forcePull }) {
+export function createDebugPanel({ game, audio, forcePull }) {
   const root = document.createElement("div");
   root.id = "debug";
   root.innerHTML = `
@@ -15,6 +15,8 @@ export function createDebugPanel({ game, forcePull }) {
       <div class="debug-grid" data-group="spins"></div>
       <h3>Board</h3>
       <div class="debug-grid" data-group="board"></div>
+      <h3>Sounds</h3>
+      <div class="debug-grid" data-group="sounds"></div>
     </div>`;
   document.body.append(root);
   const toggle = root.querySelector(".debug-toggle");
@@ -63,4 +65,20 @@ export function createDebugPanel({ game, forcePull }) {
   add("board", "🎁 Collectable", () => game.spawnCollectable());
   add("board", "🏅 Prize coin", () => game.spawnBonus("prize"));
   add("board", "💎 Gem", () => game.spawnBonus("gem"));
+
+  // Each sound has a few variations, so tap a button several times to hear the range.
+  const sound = (label, play) =>
+    add("sounds", label, () => {
+      audio.unlock();
+      play();
+    });
+  sound("🪙 Soft landing", () => audio.land(3, 0));
+  sound("🪙 Hard landing", () => audio.land(10, 0));
+  sound("📍 Peg hit", () => audio.peg(6, 5, 0));
+  sound("🧺 Coin won", () => audio.win(1, "coin", 0));
+  sound("💰 Big win", () => audio.win(5, "gem", 0));
+  sound("⬇️ Coin lost", () => audio.lost(-3));
+  sound("🌧️ Pile clatter", () => {
+    for (let i = 0; i < 12; i++) setTimeout(() => audio.land(3 + Math.random() * 7, (Math.random() - 0.5) * 6), i * 40 + Math.random() * 30);
+  });
 }

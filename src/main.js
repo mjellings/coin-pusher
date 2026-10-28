@@ -97,16 +97,16 @@ game.on((event) => {
       cabinet.flashSlot(event.slot);
       break;
     case "peg":
-      audio.peg(event.speed, event.y);
+      audio.peg(event.speed, event.y, event.x);
       if (event.speed > 3) particles.sparkle(event.x, event.y - 0.1, event.z + 0.25, 0.3);
       break;
     case "land":
-      audio.land(event.speed);
+      audio.land(event.speed, event.x);
       if (event.speed > 4) particles.sparkle(event.x, event.y, event.z, Math.min(1, event.speed / 12));
       break;
     case "win": {
       particles.burst(event.x, -0.4, BOARD.frontZ + 0.4, event);
-      audio.win(event.value, event.kind);
+      audio.win(event.value, event.kind, event.x);
       shake.add(event.kind === "coin" ? 0.25 : 0.6);
       if (!pendingWin) {
         pendingWin = { value: 0, x: 0, count: 0, kind: "coin", at: performance.now() };
@@ -117,6 +117,9 @@ game.on((event) => {
       if (event.kind !== "coin") pendingWin.kind = event.kind;
       break;
     }
+    case "lost":
+      audio.lost(event.x);
+      break;
     case "bonus": {
       audio.bonus();
       const [sx, sy] = toScreen(event.x, event.y, event.z);
@@ -280,6 +283,7 @@ slots.pullButton.addEventListener("click", () => {
 if (DEBUG) {
   createDebugPanel({
     game,
+    audio,
     forcePull(bonus) {
       game.credits++;
       forced = bonus;
