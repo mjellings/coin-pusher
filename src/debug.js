@@ -5,13 +5,13 @@ import { BONUSES } from "./bonuses.js";
 
 export const DEBUG = new URLSearchParams(location.search).has("debug");
 
-export function createDebugPanel({ game, forceSpin }) {
+export function createDebugPanel({ game, forcePull }) {
   const root = document.createElement("div");
   root.id = "debug";
   root.innerHTML = `
     <button class="panel control debug-toggle" type="button" aria-expanded="false" aria-label="Debug panel">🐞</button>
     <div class="debug-sheet panel" hidden>
-      <h3>Spin the wheel to</h3>
+      <h3>Slot machine: add a credit that lands on</h3>
       <div class="debug-grid" data-group="spins"></div>
       <h3>Board</h3>
       <div class="debug-grid" data-group="board"></div>
@@ -31,8 +31,18 @@ export function createDebugPanel({ game, forceSpin }) {
     button.addEventListener("click", action);
     root.querySelector(`[data-group="${group}"]`).append(button);
   };
-  for (const bonus of BONUSES) add("spins", `${bonus.icon} ${bonus.name}`, () => forceSpin(bonus.id));
-  add("spins", "🎲 Random spin", () => forceSpin(null));
+  // These open the slot machine, so tuck the panel away to leave the spin button clear.
+  const pullTo = (bonus) => () => {
+    forcePull(bonus);
+    sheet.hidden = true;
+    toggle.setAttribute("aria-expanded", "false");
+  };
+  for (const bonus of BONUSES) add("spins", `${bonus.icon} ${bonus.name}`, pullTo(bonus.id));
+  add("spins", "❌ A loss", pullTo(null));
+  add("spins", "🎲 Random", pullTo(undefined));
+  add("spins", "🎰 +5 credits", () => {
+    game.credits += 5;
+  });
   add("board", "🪙 +50 coins", () => {
     game.bank += 50;
     game.emit({ type: "debug" });

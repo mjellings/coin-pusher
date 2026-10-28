@@ -15,8 +15,8 @@ import { createHud, loadSettings, saveSettings } from "./hud.js";
 import { loadSave, writeSave, clearSave } from "./save.js";
 import { createBook } from "./book.js";
 import { ITEMS } from "./collection.js";
-import { createWheel } from "./wheel.js";
-import { BONUS, spinResult, spinTo } from "./bonuses.js";
+import { createSlots } from "./slots.js";
+import { BONUS, pull, pullFor } from "./bonuses.js";
 import { DEBUG, createDebugPanel } from "./debug.js";
 
 const WIN_GROUP_SECONDS = 0.35;
@@ -44,7 +44,13 @@ const shake = createCameraShake(camera);
 const audio = createAudio({ muted: settings.muted });
 const hud = createHud();
 const book = createBook();
-const wheel = createWheel({ onTick: (speed) => audio.wheelTick(speed) });
+const slots = createSlots({
+  onPull: () => audio.drop(),
+  onStop: (reel, bonus) => {
+    audio.wheelTick(1);
+    if (reel === 2 && bonus === null) audio.land(3);
+  },
+});
 
 function resize() {
   const width = window.innerWidth;
@@ -155,6 +161,9 @@ game.on((event) => {
       cabinet.flashGate();
       particles.sparkle(event.x, event.y, event.z + 0.3, 1);
       shake.add(0.4);
+      const [sx, sy] = toScreen(event.x, event.y, event.z);
+      hud.popup("🎰 +1 CREDIT", sx, sy, { kind: "gem", banner: true });
+      writeSave(game);
       break;
     }
     case "award": {
@@ -217,13 +226,13 @@ function dropCoin() {
 
 canvas.addEventListener("pointermove", aimAt);
 canvas.addEventListener("pointerdown", (event) => {
-  if (book.isOpen) return;
+  if (book.isOpen || slots.isOpen) return;
   aimAt(event);
   dropCoin();
 });
 // Keyboard: arrow keys pick a slot, space or enter drops.
 window.addEventListener("keydown", (event) => {
-  if (event.target instanceof HTMLButtonElement || book.isOpen) return;
+  if (event.target instanceof HTMLButtonElement || book.isOpen || slots.isOpen) return;
   if (event.key === "ArrowLeft") selectSlot(slot - 1);
   else if (event.key === "ArrowRight") selectSlot(slot + 1);
   else if (event.key === " " || event.key === "Enter") dropCoin();
@@ -237,7 +246,13 @@ book.button.addEventListener("click", () => {
 book.onClose(() => book.close());
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && book.isOpen) book.close();
+  if (event.key === "Escape" && slots.isOpen) slots.close();
 });
+slots.button.addEventListener("click", () => {
+  audio.unlock();
+  slots.open();
+});
+slots.onClose(() => slots.close());
 book.reset.addEventListener("click", () => {
   if (!window.confirm("Start a new game? Your coins, winnings and Collection Book will be reset.")) return;
   clearSave();
@@ -251,25 +266,24 @@ hud.muteButton.addEventListener("click", () => {
   saveSettings(settings);
 });
 
-// Spins the wheel once for each coin that has gone through the bonus gate, one after another.
-// The debug panel can queue spins that land on a chosen bonus.
-const forced = [];
-function nextSpin() {
-  if (wheel.busy || game.spins <= 0) return;
-  const id = forced.shift();
-  const { at, slice } = id ? spinTo(id) : spinResult();
-  wheel.spin(at, slice, (bonus) => {
-    game.award(bonus.id);
-    if (game.spins <= 0) wheel.hide();
-  });
-}
+// One pull of the slot machine per credit. The credit is spent, and any bonus paid, once the
+// reels stop. The debug panel can make the next pull land on a chosen result.
+let forced;
+slots.pullButton.addEventListener("click", () => {
+  if (slots.spinning || game.credits <= 0) return;
+  audio.unlock();
+  const result = forced !== undefined ? pullFor(forced) : pull();
+  forced = undefined;
+  slots.spin(result, (bonus) => game.spendCredit(bonus));
+});
 
 if (DEBUG) {
   createDebugPanel({
     game,
-    forceSpin(id) {
-      game.spins++;
-      if (id) forced.push(id);
+    forcePull(bonus) {
+      game.credits++;
+      forced = bonus;
+      slots.open();
     },
   });
 }
@@ -288,9 +302,9 @@ renderer.setAnimationLoop(() => {
     amount: game.refillAmount(),
     empty: game.bank === 0,
   });
-  nextSpin();
-  wheel.update(dt);
+  slots.setCredits(game.credits);
   cabinet.setGateX(game.gateX());
+  cabinet.setGateOpen(game.gateOpen);
   cabinet.setGuards(game.guardsUp);
   const boosts = [];
   if (game.guardsUp) boosts.push({ ...BONUS.guards, msLeft: game.guardsLeft * 1000 });
