@@ -14,7 +14,7 @@ export function loadSave() {
 
 export function writeSave(game) {
   try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify({ version: SAVE_VERSION, ...game.snapshot() }));
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ version: SAVE_VERSION, savedAt: Date.now(), ...game.snapshot() }));
   } catch {
     // Storage can be unavailable (private windows); progress just won't persist.
   }
