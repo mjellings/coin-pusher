@@ -19,6 +19,7 @@
         <span class="label">Won</span>
         <span class="value" id="won">0</span>
       </div>
+      <div id="boosts"></div>
     </div>
 
     <div id="controls">
@@ -38,13 +39,21 @@
       <strong>Out of coins!</strong>
       <span><span id="refill-amount">10</span> free coins in <span id="refill-countdown">2:00</span></span>
     </div>
+    <div id="wheel" hidden aria-live="polite">
+      <div class="wheel-dial">
+        <canvas id="wheel-canvas" aria-hidden="true"></canvas>
+        <div class="wheel-pointer" aria-hidden="true"></div>
+        <div class="wheel-hub" aria-hidden="true">BONUS</div>
+      </div>
+      <div class="wheel-result panel" id="wheel-result"></div>
+    </div>
     <div id="book" hidden>
       <div class="book-sheet panel" role="dialog" aria-modal="true" aria-labelledby="book-title">
         <header>
           <h2 id="book-title">Collection Book</h2>
           <button class="close" id="book-close" type="button" aria-label="Close">×</button>
         </header>
-        <p class="book-intro">Push collectables off the front to collect them. Finish a set for a coin shower and bigger free-coin top-ups.</p>
+        <p class="book-intro">Push collectables off the front to collect them. Finish a set for a coin shower and bigger free-coin top-ups. Drop a coin into the sliding gold gate under the peg board to spin the bonus wheel.</p>
         <div id="book-sets"></div>
         <footer>
           <button class="reset" id="reset-game" type="button">Start a new game</button>

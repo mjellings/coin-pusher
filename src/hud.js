@@ -58,6 +58,8 @@ export function createHud() {
   const refillTimer = document.getElementById("refill-timer");
   const hint = document.getElementById("hint");
   const muteButton = document.getElementById("mute");
+  const boosts = document.getElementById("boosts");
+  let boostsText = "";
 
   return {
     bank,
@@ -73,6 +75,21 @@ export function createHud() {
       refill.hidden = !empty || !counting;
       refillAmount.textContent = amount;
       refillCountdown.textContent = text;
+    },
+    // Bonuses that are running for a while, each with the time left.
+    setBoosts(list) {
+      const text = list.map(({ icon, msLeft }) => `${icon} ${formatTime(msLeft)}`).join("|");
+      if (text === boostsText) return;
+      boostsText = text;
+      boosts.replaceChildren(
+        ...list.map(({ icon, name, msLeft }) => {
+          const chip = document.createElement("span");
+          chip.className = "panel boost";
+          chip.title = name;
+          chip.textContent = `${icon} ${formatTime(msLeft)}`;
+          return chip;
+        }),
+      );
     },
     setMuted(muted) {
       muteButton.setAttribute("aria-pressed", String(muted));
