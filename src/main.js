@@ -12,8 +12,10 @@ import { createPieces, createSlotGhost } from "./render/pieces.js";
 import { createParticles, createCameraShake } from "./render/effects.js";
 import { createAudio } from "./audio.js";
 import { createHud, loadSettings, saveSettings } from "./hud.js";
+import { loadSave, writeSave } from "./save.js";
 
 const WIN_GROUP_SECONDS = 0.35;
+const AUTOSAVE_SECONDS = 2;
 
 const canvas = document.getElementById("scene");
 const settings = loadSettings();
@@ -48,8 +50,15 @@ function resize() {
 resize();
 window.addEventListener("resize", resize);
 
-const game = await createGame();
+const game = await createGame(loadSave());
 window.__game = game;
+
+// Save every couple of seconds, and whenever the tab is hidden or closed.
+setInterval(() => writeSave(game), AUTOSAVE_SECONDS * 1000);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") writeSave(game);
+});
+window.addEventListener("pagehide", () => writeSave(game));
 
 // Screen position of a point in the scene, for placing popups.
 const projected = new THREE.Vector3();

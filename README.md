@@ -12,6 +12,8 @@ Now and then a bonus drops onto the upper tier: a prize coin worth 5 or a gem wo
 
 The button in the top right mutes the sound.
 
+Your game is saved in the browser every couple of seconds and when you close the tab: your coins, your winnings and every piece on the board. Open the game again in the same browser to carry on where you left off.
+
 ## Running locally
 
 ```sh
@@ -36,3 +38,4 @@ Every push to `main` builds the game and publishes it to GitHub Pages. In the re
 - `src/render/textures.js`: canvas-drawn textures (coin faces, reeded edges, brushed metal, the sign).
 - `src/audio.js`: all sounds, synthesised with Web Audio.
 - `src/hud.js`: counters, popups, the mute button and saved settings.
+- `src/save.js`: saves and loads the game in the browser's local storage.

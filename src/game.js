@@ -103,10 +103,11 @@ const NORMAL_GROUPS = (COIN_GROUP << 16) | 0xffff;
 const IN_BOARD_GROUPS = (BOARD_COIN_GROUP << 16) | (0xffff & ~(COIN_GROUP | BOARD_COIN_GROUP));
 export const LIP_HALF_THICKNESS = 0.05;
 
-export async function createGame() {
+// Starts from a saved game when there is one, otherwise from a freshly filled board.
+export async function createGame(save) {
   await RAPIER.init();
   const game = new Game();
-  game.prefill();
+  if (!save || !game.restore(save)) game.prefill();
   return game;
 }
 
@@ -275,6 +276,52 @@ class Game {
     this.simulate(4, { scoring: false });
     // Anything that fell off while settling doesn't count.
     this.removeFallenPieces(() => {});
+  }
+
+  // Everything needed to put the machine back as it was: the scores, where the pushers are in
+  // their stroke, and every piece on the board, rounded to keep the save small.
+  snapshot() {
+    const round = (n) => Math.round(n * 1000) / 1000;
+    const vec = (v, keys = "xyz") => [...keys].map((k) => round(v[k]));
+    return {
+      bank: this.bank,
+      won: this.won,
+      time: round(this.time),
+      pieces: this.pieces.map(({ kind, body, inBoard }) => ({
+        kind,
+        p: vec(body.translation()),
+        r: vec(body.rotation(), "xyzw"),
+        v: vec(body.linvel()),
+        w: vec(body.angvel()),
+        ...(inBoard && { inBoard: true }),
+      })),
+    };
+  }
+
+  restore(save) {
+    const valid = (a, n) => Array.isArray(a) && a.length === n && a.every(Number.isFinite);
+    const pieces = Array.isArray(save.pieces) ? save.pieces : [];
+    if (!Number.isFinite(save.bank) || !Number.isFinite(save.won)) return false;
+    this.bank = save.bank;
+    this.won = save.won;
+    this.time = Number.isFinite(save.time) ? save.time : 0;
+    for (const { config, body } of this.pushers) {
+      const p = body.translation();
+      body.setTranslation({ x: p.x, y: p.y, z: this.pusherCenterZ(config, this.time) }, true);
+    }
+    for (const saved of pieces.slice(0, MAX_PIECES)) {
+      if (!KINDS[saved.kind] || !valid(saved.p, 3) || !valid(saved.r, 4)) continue;
+      const [x, y, z] = saved.p;
+      const [rx, ry, rz, rw] = saved.r;
+      const piece = this.spawn(saved.kind, x, y, z, { rotation: { x: rx, y: ry, z: rz, w: rw } });
+      if (valid(saved.v, 3)) piece.body.setLinvel({ x: saved.v[0], y: saved.v[1], z: saved.v[2] }, true);
+      if (valid(saved.w, 3)) piece.body.setAngvel({ x: saved.w[0], y: saved.w[1], z: saved.w[2] }, true);
+      if (saved.inBoard) {
+        piece.inBoard = true;
+        piece.collider.setCollisionGroups(IN_BOARD_GROUPS);
+      }
+    }
+    return true;
   }
 
   canDrop() {
