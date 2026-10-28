@@ -75,6 +75,20 @@ export const PLINKO = {
 // possible doesn't farm credits.
 export const GATE = { halfWidth: 0.55, catchHalfWidth: 0.35, range: 3, period: 4, cooldown: 3 };
 
+// The side guards bonus: a wedge in each front corner of the lower playfield. Its slanted face
+// runs from the side wall to the edge of the win zone, so coins pushed towards a gutter are
+// steered back to the middle. The roof slopes down towards the middle too, so nothing rests on
+// it. Points of the right-hand wedge's convex hull; the left one is its mirror image.
+export const GUARD = { depth: 1.6, wallHeight: 1, innerHeight: 0.25 };
+export const GUARD_POINTS = (() => {
+  const { halfWidth, winHalfWidth, frontZ } = BOARD;
+  const back = frontZ - GUARD.depth;
+  return [
+    [halfWidth, 0, back], [halfWidth, 0, frontZ], [winHalfWidth, 0, frontZ],
+    [halfWidth, GUARD.wallHeight, back], [halfWidth, GUARD.wallHeight, frontZ], [winHalfWidth, GUARD.innerHeight, frontZ],
+  ];
+})();
+
 // The front face of the peg board's glass, plus room for a tumbling coin.
 const PLINKO_FRONT_Z = PLINKO.z + PLINKO.halfGap + 0.1 + COIN_RADIUS + 0.1;
 
@@ -173,6 +187,7 @@ class Game {
     this.credits = 0;
     this.gateOpenAt = 0;
     this.guardsLeft = 0;
+    this.guardColliders = null;
     this.quickRefillsUntil = 0;
     this.listeners = new Set();
     this.pegHandles = new Set();
@@ -622,6 +637,7 @@ class Game {
     this.unstickCoins();
     this.tipUprightCoins();
     if (this.guardsLeft > 0) this.guardsLeft = Math.max(0, this.guardsLeft - TIMESTEP);
+    this.updateGuards();
     this.detectLandings();
     this.pourShower();
     this.removeFallenPieces((piece, pos) => {
@@ -683,6 +699,19 @@ class Game {
       this.credits++;
       this.gateOpenAt = this.time + GATE.cooldown;
       this.emit({ type: "gate", x: pos.x, y: pos.y, z: pos.z });
+    }
+  }
+
+  // Puts the corner wedges in while the side guards bonus runs, and takes them out after.
+  updateGuards() {
+    if (this.guardsUp && !this.guardColliders) {
+      this.guardColliders = [-1, 1].map((side) => {
+        const points = new Float32Array(GUARD_POINTS.flatMap(([x, y, z]) => [side * x, y, z]));
+        return this.world.createCollider(RAPIER.ColliderDesc.convexHull(points).setFriction(0.15));
+      });
+    } else if (!this.guardsUp && this.guardColliders) {
+      for (const collider of this.guardColliders) this.world.removeCollider(collider, true);
+      this.guardColliders = null;
     }
   }
 
