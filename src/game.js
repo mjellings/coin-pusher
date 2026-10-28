@@ -485,10 +485,11 @@ class Game {
         this.spawnCollectable(undefined, { quiet: true });
         break;
       case "guards":
-        this.guardsLeft += GUARDS_SECONDS;
+        // Winning a timed bonus again restarts its timer rather than adding to it.
+        this.guardsLeft = GUARDS_SECONDS;
         break;
       case "refills":
-        this.quickRefillsUntil = Math.max(now, this.quickRefillsUntil) + QUICK_REFILL_MS;
+        this.quickRefillsUntil = now + QUICK_REFILL_MS;
         // Bring the next top-up forward to match the faster rate.
         if (this.refillAt !== null) this.refillAt = Math.min(this.refillAt, now + this.refillInterval(now));
         break;
