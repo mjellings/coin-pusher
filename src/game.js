@@ -4,6 +4,7 @@ import {
   BONUS,
   SHOWER_BONUS,
   BAG_BONUS,
+  PAIR_BONUS,
   PRIZE_BONUS,
   JACKPOT_SHOWER,
   GUARDS_SECONDS,
@@ -68,9 +69,11 @@ export const PLINKO = {
   slotY: 13.2,
 };
 
-// The bonus gate slides back and forth along the bottom of the peg board. A coin that drops out
-// of the board through it is caught and spins the bonus wheel.
-export const GATE = { halfWidth: 0.18, range: 3, period: 6 };
+// The bonus gate slides back and forth along the bottom of the peg board. Its cup is wide enough
+// for a coin; one that drops out of the board mostly inside it is caught and earns a credit for
+// the slot machine. After a catch the gate shuts for a few seconds, so firing coins as fast as
+// possible doesn't farm credits.
+export const GATE = { halfWidth: 0.55, catchHalfWidth: 0.35, range: 3, period: 4, cooldown: 3 };
 
 export const DROP = { cooldown: 0.25 };
 
@@ -164,7 +167,8 @@ class Game {
     this.refillAt = null;
     this.showerLeft = 0;
     this.nextShowerAt = 0;
-    this.spins = 0;
+    this.credits = 0;
+    this.gateOpenAt = 0;
     this.guardsLeft = 0;
     this.quickRefillsUntil = 0;
     this.listeners = new Set();
@@ -360,7 +364,7 @@ class Game {
       collection: this.collection,
       refillAt: this.refillAt,
       showerLeft: this.showerLeft,
-      spins: this.spins,
+      credits: this.credits,
       guardsLeft: round(this.guardsLeft),
       quickRefillsUntil: this.quickRefillsUntil,
       pieces: this.pieces.map(({ kind, body, inBoard, item }) => ({
@@ -389,7 +393,9 @@ class Game {
     }
     this.refillAt = Number.isFinite(save.refillAt) ? save.refillAt : null;
     this.showerLeft = Number.isFinite(save.showerLeft) ? save.showerLeft : 0;
-    this.spins = Number.isFinite(save.spins) ? save.spins : 0;
+    // Older saves kept unused wheel spins; they carry over as credits.
+    const credits = save.credits ?? save.spins;
+    this.credits = Number.isFinite(credits) ? credits : 0;
     this.guardsLeft = Number.isFinite(save.guardsLeft) ? save.guardsLeft : 0;
     this.quickRefillsUntil = Number.isFinite(save.quickRefillsUntil) ? save.quickRefillsUntil : 0;
     for (const { config, body } of this.pushers) {
@@ -469,6 +475,10 @@ class Game {
     return GATE.range * Math.sin((2 * Math.PI * t) / GATE.period);
   }
 
+  get gateOpen() {
+    return this.time >= this.gateOpenAt;
+  }
+
   get guardsUp() {
     return this.guardsLeft > 0;
   }
@@ -477,11 +487,19 @@ class Game {
     return now < this.quickRefillsUntil;
   }
 
-  // Pays out what the wheel landed on, using up one waiting spin.
+  // Uses up a slot machine credit and pays out what the reels landed on (nothing for a loss).
+  spendCredit(id, now = Date.now()) {
+    if (this.credits <= 0) return;
+    this.credits--;
+    if (BONUS[id]) this.award(id, now);
+  }
+
   award(id, now = Date.now()) {
-    if (this.spins <= 0 || !BONUS[id]) return;
-    this.spins--;
     switch (id) {
+      case "pair":
+        this.bank += PAIR_BONUS;
+        this.won += PAIR_BONUS;
+        break;
       case "shower":
         this.showerLeft += SHOWER_BONUS;
         break;
@@ -629,7 +647,7 @@ class Game {
 
   // Coins in the peg board pass through each other. Once a coin has dropped clear of the board
   // it collides with other coins again, unless it came out through the bonus gate, which keeps
-  // it and earns a spin. One that comes to rest on a peg gets a sideways nudge.
+  // it and earns a slot machine credit. One that comes to rest on a peg gets a sideways nudge.
   unstickCoins() {
     const caught = [];
     for (const piece of this.pieces) {
@@ -638,7 +656,7 @@ class Game {
       if (pos.y < PLINKO.bottomY - COIN_RADIUS - 0.05) {
         piece.inBoard = false;
         piece.collider.setCollisionGroups(NORMAL_GROUPS);
-        if (Math.abs(pos.x - this.gateX()) < GATE.halfWidth) caught.push(piece);
+        if (this.gateOpen && caught.length === 0 && Math.abs(pos.x - this.gateX()) < GATE.catchHalfWidth) caught.push(piece);
         continue;
       }
       const v = piece.body.linvel();
@@ -652,7 +670,8 @@ class Game {
     for (const piece of caught) {
       const pos = piece.body.translation();
       this.removePiece(piece);
-      this.spins++;
+      this.credits++;
+      this.gateOpenAt = this.time + GATE.cooldown;
       this.emit({ type: "gate", x: pos.x, y: pos.y, z: pos.z });
     }
   }

@@ -150,6 +150,7 @@ body {
 #popups {
   position: fixed;
   inset: 0;
+  z-index: 11;
   pointer-events: none;
   overflow: hidden;
 }
@@ -560,130 +561,10 @@ body {
   color: var(--cyan);
 }
 
-/* The bonus wheel, over the peg board. It doesn't take clicks, so play carries on. */
-#wheel {
-  --dial: min(300px, 62vw, 38vh);
-  position: fixed;
-  left: 50%;
-  top: calc(max(70px, 9vh) + env(safe-area-inset-top, 0px));
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  pointer-events: none;
-  animation: wheel-in 0.35s cubic-bezier(0.2, 0.8, 0.3, 1.2);
-}
-
-#wheel[hidden] {
-  display: none;
-}
-
-.wheel-dial {
-  position: relative;
-  width: var(--dial);
-  height: var(--dial);
-  filter: drop-shadow(0 10px 30px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 22px rgba(255, 190, 60, 0.35));
-}
-
-#wheel-canvas {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-}
-
-.wheel-pointer {
-  position: absolute;
-  left: 50%;
-  top: -6px;
-  width: 0;
-  height: 0;
-  transform: translateX(-50%);
-  border-left: 14px solid transparent;
-  border-right: 14px solid transparent;
-  border-top: 30px solid #fff6d8;
-  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 6px rgba(255, 207, 90, 0.9));
-}
-
-.wheel-hub {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  display: grid;
-  place-items: center;
-  width: 26%;
-  aspect-ratio: 1;
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #3a1a34, #12060e 70%);
-  border: 3px solid var(--gold);
-  font-family: var(--display);
-  font-size: calc(var(--dial) * 0.045);
-  font-weight: 900;
-  letter-spacing: 0.06em;
-  color: var(--gold);
-}
-
-.wheel-result {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  min-height: 0;
-  padding: 0;
-  opacity: 0;
-  text-align: center;
-  font-size: 15px;
-  font-weight: 700;
-  transform: scale(0.7);
-  transition:
-    opacity 0.2s,
-    transform 0.3s cubic-bezier(0.2, 0.8, 0.3, 1.4);
-}
-
-.wheel-result strong {
-  font-family: var(--display);
-  font-size: 20px;
-  letter-spacing: 0.05em;
-  color: var(--gold);
-}
-
-#wheel.landed .wheel-result {
-  padding: 10px 20px;
-  opacity: 1;
-  transform: scale(1);
-}
-
-#wheel.jackpot .wheel-result {
-  border-color: var(--gold);
-  box-shadow:
-    0 0 30px rgba(255, 207, 90, 0.7),
-    0 8px 28px rgba(0, 0, 0, 0.45);
-}
-
-#wheel.jackpot .wheel-result strong {
-  font-size: 26px;
-  animation: jackpot-glow 0.4s ease-in-out infinite alternate;
-}
-
-@keyframes jackpot-glow {
-  from {
-    text-shadow: 0 0 6px rgba(255, 207, 90, 0.6);
-  }
-  to {
-    text-shadow: 0 0 22px rgba(255, 240, 160, 1);
-  }
-}
-
-@keyframes wheel-in {
-  from {
-    opacity: 0;
-    transform: translateX(-50%) scale(0.6);
-  }
-}
-
 #debug {
   position: fixed;
+  /* Above the slot machine and the book, so results can be forced while they're open. */
+  z-index: 12;
   left: calc(14px + env(safe-area-inset-left, 0px));
   bottom: calc(14px + env(safe-area-inset-bottom, 0px));
   display: flex;
@@ -733,4 +614,210 @@ body {
 
 .debug-grid button:hover {
   border-color: rgba(255, 220, 160, 0.6);
+}
+
+/* The slot machine. Shares the Collection Book's sheet, header and close button. */
+#slots {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(5, 2, 10, 0.6);
+  z-index: 10;
+}
+
+#slots[hidden] {
+  display: none;
+}
+
+#slots-button {
+  flex-direction: row;
+  gap: 6px;
+  position: relative;
+}
+
+#slots-button.has-new::after {
+  content: "";
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 10px var(--gold);
+  animation: pulse 1s ease-in-out infinite alternate;
+}
+
+.slots-sheet {
+  width: min(420px, 100%);
+}
+
+.machine {
+  --cell: min(72px, 17vw, 11vh);
+  position: relative;
+  margin: 12px 0 10px;
+  padding: 10px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #c8902c, #6a3c0c);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 246, 216, 0.6),
+    0 0 24px rgba(255, 190, 60, 0.35);
+}
+
+.reels {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.reel {
+  height: calc(var(--cell) * 3);
+  overflow: hidden;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #2a1424, #fff6e6 22%, #fff6e6 78%, #2a1424);
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.55);
+}
+
+.strip span {
+  display: grid;
+  place-items: center;
+  height: var(--cell);
+  font-size: calc(var(--cell) * 0.62);
+  line-height: 1;
+}
+
+.payline {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 50%;
+  height: calc(var(--cell) + 4px);
+  transform: translateY(-50%);
+  border: 3px solid rgba(255, 79, 184, 0.85);
+  border-radius: 10px;
+  box-shadow: 0 0 12px rgba(255, 79, 184, 0.6);
+  pointer-events: none;
+}
+
+.slots-result {
+  min-height: 1.4em;
+  margin: 0 0 10px;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink-dim);
+}
+
+.slots-result.win {
+  color: var(--gold);
+}
+
+.slots-result.jackpot {
+  font-family: var(--display);
+  font-size: 19px;
+  animation: jackpot-glow 0.4s ease-in-out infinite alternate;
+}
+
+@keyframes jackpot-glow {
+  from {
+    text-shadow: 0 0 6px rgba(255, 207, 90, 0.6);
+  }
+  to {
+    text-shadow: 0 0 22px rgba(255, 240, 160, 1);
+  }
+}
+
+.slots-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.slots-credits {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.slots-credits strong {
+  display: block;
+  font-family: var(--display);
+  font-size: 26px;
+  letter-spacing: 0;
+  color: var(--gold);
+}
+
+.pull {
+  flex: 1;
+  max-width: 220px;
+  min-height: 52px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ff7ac8, var(--pink) 50%, #b8237f);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.5),
+    0 4px 0 #6a0f4a,
+    0 0 18px rgba(255, 79, 184, 0.5);
+  color: #fff;
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+}
+
+.pull:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.5),
+    0 1px 0 #6a0f4a;
+}
+
+.pull:disabled {
+  filter: grayscale(0.8) brightness(0.6);
+  cursor: default;
+}
+
+.paytable {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.paytable li {
+  display: grid;
+  grid-template-columns: 5.2em 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.paytable .line {
+  font-size: 18px;
+  white-space: nowrap;
+}
+
+.paytable .any {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-dim);
+  vertical-align: middle;
+}
+
+.paytable .prize {
+  color: var(--ink-dim);
+}
+
+.paytable strong {
+  color: var(--ink);
 }

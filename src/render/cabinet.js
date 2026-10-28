@@ -178,6 +178,7 @@ export function buildCabinet(scene) {
     flashSlot: slots.flash,
     setGateX: slots.setGateX,
     flashGate: slots.flashGate,
+    setGateOpen: slots.setGateOpen,
     setGuards(on) {
       for (const guard of guards) guard.visible = on;
     },
@@ -235,16 +236,17 @@ function buildPegBoard(scene, materials, box) {
     scene.add(light);
   });
 
-  // The bonus gate: a lit gold cup under the bottom of the board that slides from side to side.
-  // Coins that drop into it spin the bonus wheel.
+  // The bonus gate: a lit gold cup under the bottom of the board, wide enough for a coin, that
+  // slides from side to side. Coins that drop into it earn slot machine credits. It glows red
+  // while it's shut after a catch.
   const gateMaterial = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 2.2, 0.5) });
   const gate = new THREE.Group();
   const gateDepth = PLINKO.halfGap * 2 + 0.36;
-  const cup = new THREE.Mesh(new THREE.BoxGeometry(GATE.halfWidth * 2 + 0.4, 0.08, gateDepth), gateMaterial);
+  const cup = new THREE.Mesh(new THREE.BoxGeometry(GATE.halfWidth * 2, 0.08, gateDepth), gateMaterial);
   gate.add(cup);
   for (const side of [-1, 1]) {
     const post = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.3, gateDepth), materials.chrome);
-    post.position.set(side * (GATE.halfWidth + 0.24), 0.11, 0);
+    post.position.set(side * (GATE.halfWidth + 0.04), 0.11, 0);
     gate.add(post);
   }
   gate.position.set(0, PLINKO.bottomY - 0.2, PLINKO.z);
@@ -253,6 +255,8 @@ function buildPegBoard(scene, materials, box) {
   const gateIdle = new THREE.Color(3, 2.2, 0.5);
   const gateDim = new THREE.Color(1.2, 0.7, 0.15);
   const gateHit = new THREE.Color(4, 4, 4);
+  const gateShut = new THREE.Color(1.6, 0.15, 0.2);
+  let gateOpen = true;
 
   // A glowing arrow above the chosen slot.
   const arrow = new THREE.Mesh(
@@ -280,9 +284,14 @@ function buildPegBoard(scene, materials, box) {
     flashGate() {
       gateFlash = 1;
     },
+    setGateOpen(open) {
+      gateOpen = open;
+    },
     update(time, dt) {
       gateFlash = Math.max(0, gateFlash - dt * 1.5);
-      gateMaterial.color.copy(gateDim).lerp(gateIdle, 0.5 + Math.sin(time * 8) * 0.5).lerp(gateHit, gateFlash);
+      if (gateOpen) gateMaterial.color.copy(gateDim).lerp(gateIdle, 0.5 + Math.sin(time * 8) * 0.5);
+      else gateMaterial.color.copy(gateShut);
+      gateMaterial.color.lerp(gateHit, gateFlash);
       gate.scale.setScalar(1 + gateFlash * 0.3);
       slotMaterials.forEach((material, i) => {
         flashes[i] = Math.max(0, flashes[i] - dt * 4);

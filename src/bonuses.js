@@ -1,19 +1,20 @@
-// The bonus wheel. A coin that drops out of the peg board through the sliding bonus gate spins
-// it. Each bonus's slice of the wheel is as wide as its chance of coming up, so the jackpot is a
-// thin gold sliver.
+// The bonus slot machine. A coin that drops through the sliding bonus gate earns a credit; each
+// credit pulls the three reels once, and a winning line pays one of these bonuses.
 
 export const BONUSES = [
-  { id: "shower", name: "Coin Shower", short: "SHOWER", detail: "20 coins rain down", icon: "🌧️", color: "#e8962a", weight: 24 },
-  { id: "bag", name: "Coin Bag", short: "+15", detail: "+15 coins", icon: "🪙", color: "#ff4fb8", weight: 20 },
-  { id: "prizes", name: "Prize Coins", short: "PRIZES", detail: "Three ×5 prize coins drop in", icon: "🏅", color: "#8c6bff", weight: 16 },
-  { id: "collectable", name: "Mystery Collectable", short: "MYSTERY", detail: "A collectable drops in", icon: "🎁", color: "#2fb8c9", weight: 14 },
-  { id: "guards", name: "Side Guards", short: "GUARDS", detail: "No coins lost down the sides for 60s", icon: "🛡️", color: "#3fbf6a", weight: 12 },
-  { id: "refills", name: "Quick Refills", short: "REFILLS", detail: "Free coins twice as fast for 30 min", icon: "⏱️", color: "#4f7dff", weight: 11 },
-  { id: "jackpot", name: "Mega Jackpot", short: "JACKPOT", detail: "100-coin shower, a gem and a new collectable", icon: "👑", color: "#ffd84a", weight: 3 },
+  { id: "pair", name: "Cherry Pair", detail: "+5 coins", icon: "🍒" },
+  { id: "bag", name: "Coin Bag", detail: "+15 coins", icon: "🪙" },
+  { id: "shower", name: "Coin Shower", detail: "20 coins rain down", icon: "🌧️" },
+  { id: "collectable", name: "Mystery Collectable", detail: "A collectable drops in", icon: "🎁" },
+  { id: "guards", name: "Side Guards", detail: "No coins lost down the sides for 60s", icon: "🛡️" },
+  { id: "prizes", name: "Prize Coins", detail: "Three ×5 prize coins drop in", icon: "🏅" },
+  { id: "refills", name: "Quick Refills", detail: "Free coins twice as fast for 30 min", icon: "⏱️" },
+  { id: "jackpot", name: "Mega Jackpot", detail: "100-coin shower, a gem and a new collectable", icon: "👑" },
 ];
 
 export const BONUS = Object.fromEntries(BONUSES.map((bonus) => [bonus.id, bonus]));
 
+export const PAIR_BONUS = 5;
 export const SHOWER_BONUS = 20;
 export const BAG_BONUS = 15;
 export const PRIZE_BONUS = 3;
@@ -21,31 +22,63 @@ export const JACKPOT_SHOWER = 100;
 export const GUARDS_SECONDS = 60;
 export const QUICK_REFILL_MS = 30 * 60 * 1000;
 
-// The wheel's slices, in order round the rim. Every bonus but the jackpot appears twice, on
-// opposite sides, so the colours mix. Angles are fractions of a turn.
-export const SLICES = (() => {
-  const halves = BONUSES.filter((bonus) => bonus.id !== "jackpot");
-  const order = [...halves, BONUS.jackpot, ...halves];
-  const total = order.reduce((sum, bonus) => sum + (bonus.id === "jackpot" ? bonus.weight : bonus.weight / 2), 0);
-  let start = 0;
-  return order.map((bonus) => {
-    const size = (bonus.id === "jackpot" ? bonus.weight : bonus.weight / 2) / total;
-    const slice = { bonus, start, size };
-    start += size;
-    return slice;
-  });
-})();
+export const SYMBOLS = ["🍒", "🍋", "🔔", "⭐", "💎", "7️⃣", "👑"];
+const CHERRY = SYMBOLS[0];
 
-// Picks where the wheel stops, as a fraction of a turn, and the slice it lands in.
-export function spinResult() {
-  const at = Math.random();
-  const slice = SLICES.find((s) => at < s.start + s.size) ?? SLICES[SLICES.length - 1];
-  return { at, slice };
+// What each winning line pays and how often it comes up, in percent. Any two cherries is the
+// small, common win; three crowns is the jackpot. Everything else is a loss.
+export const PAYTABLE = [
+  { line: ["👑", "👑", "👑"], bonus: "jackpot", chance: 0.5 },
+  { line: ["7️⃣", "7️⃣", "7️⃣"], bonus: "refills", chance: 2.5 },
+  { line: ["💎", "💎", "💎"], bonus: "prizes", chance: 4 },
+  { line: ["⭐", "⭐", "⭐"], bonus: "guards", chance: 5 },
+  { line: ["🔔", "🔔", "🔔"], bonus: "collectable", chance: 6 },
+  { line: ["🍋", "🍋", "🍋"], bonus: "shower", chance: 9 },
+  { line: ["🍒", "🍒", "🍒"], bonus: "bag", chance: 8 },
+  { line: ["🍒", "🍒", "·"], bonus: "pair", chance: 15 },
+];
+
+const pick = (list) => list[Math.floor(Math.random() * list.length)];
+
+// The reels for a given result: a winning line, or for a loss (null) a line that pays nothing.
+// Losses are often a near miss, two of a kind with the third just off.
+export function reelsFor(bonus) {
+  const entry = PAYTABLE.find((e) => e.bonus === bonus);
+  if (entry && bonus !== "pair") return [...entry.line];
+  if (bonus === "pair") {
+    const reels = [CHERRY, CHERRY, pick(SYMBOLS.slice(1))];
+    // Put the odd one out on a random reel.
+    const odd = Math.floor(Math.random() * 3);
+    [reels[2], reels[odd]] = [reels[odd], reels[2]];
+    return reels;
+  }
+  const others = SYMBOLS.slice(1);
+  if (Math.random() < 0.4) {
+    const two = pick(others);
+    const reels = [two, two, pick(others.filter((s) => s !== two))];
+    if (Math.random() < 0.5) [reels[1], reels[2]] = [reels[2], reels[1]];
+    return reels;
+  }
+  // Three different symbols, at most one of them a cherry.
+  const reels = [];
+  while (reels.length < 3) {
+    const s = pick(SYMBOLS);
+    if (!reels.includes(s)) reels.push(s);
+  }
+  return reels;
 }
 
-// Lands somewhere inside one of a bonus's slices. Used by the debug panel.
-export function spinTo(id) {
-  const slices = SLICES.filter((s) => s.bonus.id === id);
-  const slice = slices[Math.floor(Math.random() * slices.length)];
-  return { at: slice.start + slice.size * (0.2 + Math.random() * 0.6), slice };
+// One pull: which bonus it pays (null for a loss) and the symbols to show.
+export function pull() {
+  let roll = Math.random() * 100;
+  for (const entry of PAYTABLE) {
+    roll -= entry.chance;
+    if (roll < 0) return { bonus: entry.bonus, reels: reelsFor(entry.bonus) };
+  }
+  return { bonus: null, reels: reelsFor(null) };
+}
+
+// A pull that lands on a chosen result. Used by the debug panel.
+export function pullFor(bonus) {
+  return { bonus, reels: reelsFor(bonus) };
 }
