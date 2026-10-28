@@ -21,7 +21,7 @@ export const BOARD = {
   halfWidth: 4,
   frontZ: 3,
   backZ: -10,
-  wallHeight: 10.8,
+  wallHeight: 14.2,
   // Coins that fall off the front edge within this distance of the centre are won;
   // the rest drop into the side gutters and are lost, like a real machine.
   winHalfWidth: 2.8,
@@ -49,14 +49,14 @@ export const PLINKO = {
   z: -6.4,
   halfGap: 0.1,
   bottomY: 4.5,
-  topY: 10.35,
+  topY: 13.75,
   pegRadius: 0.09,
   // Pegs must sit far enough apart, across and diagonally, for a coin to pass between them.
   // Listed from the top. The first row sits well below the slots so coins fall freely first.
-  rows: [8.4, 7.55, 6.7, 5.85, 5.0],
+  rows: [11.8, 10.95, 10.1, 9.25, 8.4, 7.55, 6.7, 5.85, 5.0],
   pegSpacing: 1.6,
   slots: [-3.2, -1.6, 0, 1.6, 3.2],
-  slotY: 9.8,
+  slotY: 13.2,
 };
 
 // The bonus gate slides back and forth along the bottom of the peg board. A coin that drops out

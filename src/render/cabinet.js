@@ -3,7 +3,7 @@ import { BOARD, SHELF, PUSHERS, UPPER_WALL, PLINKO, PEGS, DEFLECTORS, LIP_HALF_T
 import { brushedMetal, signTexture, pegBoardTexture } from "./textures.js";
 
 const SIGN_BOTTOM = PLINKO.topY + 0.75;
-const SIGN_TOP = SIGN_BOTTOM + 1.85;
+export const SIGN_TOP = SIGN_BOTTOM + 1.85;
 const BACK_TOP = SIGN_TOP + 0.5;
 
 export function buildCabinet(scene) {
