@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { BOARD, SHELF, SCRAPER, PUSHERS, UPPER_WALL, PLINKO, PEGS, DEFLECTORS, LIP_HALF_THICKNESS, GATE } from "../game.js";
+import { ConvexGeometry } from "three/addons/geometries/ConvexGeometry.js";
+import { BOARD, SHELF, SCRAPER, PUSHERS, UPPER_WALL, PLINKO, PEGS, DEFLECTORS, LIP_HALF_THICKNESS, GATE, GUARD_POINTS } from "../game.js";
 import { brushedMetal, signTexture, pegBoardTexture } from "./textures.js";
 
 const SIGN_BOTTOM = PLINKO.topY + 0.75;
@@ -122,23 +123,26 @@ export function buildCabinet(scene) {
   // Win tray below the front edge, with dark side gutters where coins are lost.
   box(winHalfWidth * 2, 0.3, 3, materials.tray, 0, -2.4, frontZ + 1.2);
   const gutterWidth = halfWidth + 0.7 - winHalfWidth;
-  // Shown while the side guards bonus is running.
+  // The side guards' corner wedges, shown while the bonus is running.
   const guardMaterial = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(0.4, 2.4, 1.2),
+    color: new THREE.Color(0.3, 2.6, 1.3),
     transparent: true,
-    opacity: 0.55,
+    opacity: 0.6,
+    blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
-  const guards = [];
+  const guardEdges = new THREE.LineBasicMaterial({ color: new THREE.Color(1.2, 4, 2.2) });
+  const guards = [-1, 1].map((side) => {
+    const geometry = new ConvexGeometry(GUARD_POINTS.map(([x, y, z]) => new THREE.Vector3(side * x, y, z)));
+    const guard = new THREE.Mesh(geometry, guardMaterial);
+    guard.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry), guardEdges));
+    guard.visible = false;
+    scene.add(guard);
+    return guard;
+  });
   for (const side of [-1, 1]) {
     box(gutterWidth, 0.3, 3, materials.gutter, side * (winHalfWidth + gutterWidth / 2), -2.7, frontZ + 1.2);
     box(0.08, 0.7, 3, materials.chrome, side * winHalfWidth, -2.15, frontZ + 1.2);
-    // A glowing barrier along the front edge, in front of the gutter.
-    const guard = new THREE.Mesh(new THREE.BoxGeometry(halfWidth - winHalfWidth, 0.35, 0.08), guardMaterial);
-    guard.position.set(side * (winHalfWidth + (halfWidth - winHalfWidth) / 2), 0.1, frontZ + 0.08);
-    guard.visible = false;
-    scene.add(guard);
-    guards.push(guard);
   }
 
   // Both pushers, each with a colour-cycling LED strip along its front edge.
@@ -183,7 +187,7 @@ export function buildCabinet(scene) {
       for (const guard of guards) guard.visible = on;
     },
     update(time, dt) {
-      guardMaterial.opacity = 0.4 + Math.sin(time * 6) * 0.15;
+      guardMaterial.opacity = 0.5 + Math.sin(time * 6) * 0.15;
       ledMaterials.forEach((material, i) => {
         ledColor.setHSL((time * 0.08 + i * 0.5) % 1, 1, 0.55).multiplyScalar(2.4);
         material.color.copy(ledColor);

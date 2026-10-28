@@ -508,7 +508,12 @@ body {
 }
 
 @media (max-width: 480px) {
-  /* No room beside the counters on a phone, so running bonuses sit underneath them. */
+  /* No room for the buttons beside the counters on a phone, so they stack down the right. */
+  #controls {
+    flex-direction: column;
+    align-items: flex-end;
+  }
+  /* Likewise running bonuses sit underneath the counters. */
   #boosts {
     position: absolute;
     top: 100%;
