@@ -42,10 +42,12 @@ export const PUSHERS = [
   { height: 0.8, depth: 5, baseY: SHELF.topY, minFrontZ: -8.45, maxFrontZ: -5.5, period: 4, phase: 0, lip: 0.4 },
 ];
 
-// A clear scraper blade hanging over the lower pusher, in front of the shelf. Its bottom edge clears one flat coin on the pusher top, so as the
-// pusher carries coins forward, any riding on top of others are held back and knocked off. It
-// sits ahead of the pusher's rearmost reach, so the coins it holds back get shoved off the
-// pusher's front edge by the shelf as the pusher pulls back, instead of piling up behind it.
+// A clear scraper blade hanging over the lower pusher, in front of the shelf. Its bottom edge
+// clears one flat coin on the pusher top, so as the pusher carries coins forward, any riding on
+// top of others are held back and knocked off. Prize coins and collectables are as thin as
+// coins so they fit under it too. It sits ahead of the pusher's rearmost reach, so the coins it
+// holds back get shoved off the pusher's front edge by the shelf as the pusher pulls back,
+// instead of piling up behind it.
 export const SCRAPER = { z: -1.5, thickness: 0.08, clearance: 0.17, topY: 2 };
 
 // The wall above the upper pusher that scrapes coins off it as it pulls back.
@@ -76,10 +78,10 @@ export const DROP = { cooldown: 0.25 };
 // gems turn up now and then and pay out more when they're pushed off.
 export const KINDS = {
   coin: { value: 1 },
-  prize: { value: 5, radius: 0.64, halfHeight: 0.083 },
+  prize: { value: 5, radius: 0.64, halfHeight: COIN_HALF_HEIGHT },
   gem: { value: 10 },
   // Collectables pay nothing themselves; they go in the Collection Book.
-  collectable: { value: 0, radius: 0.55, halfHeight: 0.11 },
+  collectable: { value: 0, radius: 0.55, halfHeight: COIN_HALF_HEIGHT },
 };
 
 // Points of the gem's convex hull: a flat table on top, a hexagonal girdle and a pointed base.
@@ -132,6 +134,10 @@ const UPRIGHT = { cos: 0.5, after: 0.1, retry: 0.3, spin: 12 };
 const COIN_GROUP = 0x0001;
 const BOARD_COIN_GROUP = 0x0002;
 const NORMAL_GROUPS = (COIN_GROUP << 16) | 0xffff;
+// Gems are too tall to fit under the scraper over the lower pusher, so they pass through it.
+const GEM_GROUP = 0x0004;
+const GEM_GROUPS = (GEM_GROUP << 16) | 0xffff;
+const SCRAPER_GROUPS = (0xffff << 16) | (0xffff & ~GEM_GROUP);
 const IN_BOARD_GROUPS = (BOARD_COIN_GROUP << 16) | (0xffff & ~(COIN_GROUP | BOARD_COIN_GROUP));
 export const LIP_HALF_THICKNESS = 0.05;
 
@@ -196,12 +202,17 @@ class Game {
 
     // Slippery facings on the shelf front and the scraper blade over the lower pusher, so coins
     // dragged back against them by the pusher slide down flat instead of being propped up on edge.
-    const slippery = (hx, hy, hz, x, y, z) =>
-      fixed(hx, hy, hz, x, y, z, 0).setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min);
+    const slippery = (hx, hy, hz, x, y, z) => {
+      const collider = fixed(hx, hy, hz, x, y, z, 0);
+      collider.setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min);
+      return collider;
+    };
     slippery(halfWidth, (SHELF.topY - shelfBottom) / 2, 0.01, 0, (shelfBottom + SHELF.topY) / 2, SHELF.frontZ + 0.01);
     const scraperBottom = PUSHERS[0].height + SCRAPER.clearance;
     const scraperHalf = (SCRAPER.topY - scraperBottom) / 2;
-    slippery(halfWidth, scraperHalf, SCRAPER.thickness / 2, 0, scraperBottom + scraperHalf, SCRAPER.z);
+    slippery(halfWidth, scraperHalf, SCRAPER.thickness / 2, 0, scraperBottom + scraperHalf, SCRAPER.z).setCollisionGroups(
+      SCRAPER_GROUPS,
+    );
 
     // Upper scraper wall, from just above the upper pusher to the top of the cabinet.
     const wallHalf = (wallHeight - UPPER_WALL.bottomY) / 2;
@@ -295,7 +306,7 @@ class Game {
         .setCcdEnabled(true),
     );
     const collider = this.world.createCollider(
-      colliderFor(kind).setFriction(0.4).setRestitution(0.15).setDensity(1).setCollisionGroups(NORMAL_GROUPS),
+      colliderFor(kind).setFriction(0.4).setRestitution(0.15).setDensity(1).setCollisionGroups(kind === "gem" ? GEM_GROUPS : NORMAL_GROUPS),
       body,
     );
     const piece = { kind, value: KINDS[kind].value, body, collider, prevVy: 0, lastLandAt: -Infinity, inBoard: false, item };
