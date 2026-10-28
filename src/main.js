@@ -15,6 +15,9 @@ import { createHud, loadSettings, saveSettings } from "./hud.js";
 import { loadSave, writeSave, clearSave } from "./save.js";
 import { createBook } from "./book.js";
 import { ITEMS } from "./collection.js";
+import { createWheel } from "./wheel.js";
+import { BONUS, spinResult, spinTo } from "./bonuses.js";
+import { DEBUG, createDebugPanel } from "./debug.js";
 
 const WIN_GROUP_SECONDS = 0.35;
 const AUTOSAVE_SECONDS = 2;
@@ -41,6 +44,7 @@ const shake = createCameraShake(camera);
 const audio = createAudio({ muted: settings.muted });
 const hud = createHud();
 const book = createBook();
+const wheel = createWheel({ onTick: (speed) => audio.wheelTick(speed) });
 
 function resize() {
   const width = window.innerWidth;
@@ -146,6 +150,29 @@ game.on((event) => {
       });
       break;
     }
+    case "gate": {
+      audio.bonus();
+      cabinet.flashGate();
+      particles.sparkle(event.x, event.y, event.z + 0.3, 1);
+      shake.add(0.4);
+      break;
+    }
+    case "award": {
+      const bonus = BONUS[event.id];
+      if (event.id === "jackpot") {
+        audio.fanfare();
+        shake.add(1.2);
+      } else {
+        audio.collect();
+      }
+      hud.popup(`${bonus.icon} ${bonus.name.toUpperCase()}!`, window.innerWidth / 2, window.innerHeight * 0.55, {
+        kind: event.id === "jackpot" ? "gem" : "collectable",
+        big: event.id === "jackpot",
+        banner: true,
+      });
+      writeSave(game);
+      break;
+    }
     case "refill": {
       audio.bonus();
       hud.popup(`FREE COINS +${event.amount}`, window.innerWidth / 2, window.innerHeight * 0.3, { banner: true });
@@ -224,6 +251,29 @@ hud.muteButton.addEventListener("click", () => {
   saveSettings(settings);
 });
 
+// Spins the wheel once for each coin that has gone through the bonus gate, one after another.
+// The debug panel can queue spins that land on a chosen bonus.
+const forced = [];
+function nextSpin() {
+  if (wheel.busy || game.spins <= 0) return;
+  const id = forced.shift();
+  const { at, slice } = id ? spinTo(id) : spinResult();
+  wheel.spin(at, slice, (bonus) => {
+    game.award(bonus.id);
+    if (game.spins <= 0) wheel.hide();
+  });
+}
+
+if (DEBUG) {
+  createDebugPanel({
+    game,
+    forceSpin(id) {
+      game.spins++;
+      if (id) forced.push(id);
+    },
+  });
+}
+
 document.getElementById("loading").classList.add("done");
 
 const clock = new THREE.Clock();
@@ -238,6 +288,14 @@ renderer.setAnimationLoop(() => {
     amount: game.refillAmount(),
     empty: game.bank === 0,
   });
+  nextSpin();
+  wheel.update(dt);
+  cabinet.setGateX(game.gateX());
+  cabinet.setGuards(game.guardsUp);
+  const boosts = [];
+  if (game.guardsUp) boosts.push({ ...BONUS.guards, msLeft: game.guardsLeft * 1000 });
+  if (game.quickRefills(now)) boosts.push({ ...BONUS.refills, msLeft: game.quickRefillsUntil - now });
+  hud.setBoosts(boosts);
   if (pendingWin && performance.now() - pendingWin.at > WIN_GROUP_SECONDS * 1000) flushWin();
 
   pieces.sync(game.pieces, time);
