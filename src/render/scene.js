@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { BOARD } from "../game.js";
+import { BOARD, UPPER_WALL } from "../game.js";
+import { SIGN_TOP } from "./cabinet.js";
 import { bokehSprite, roomBackdrop } from "./textures.js";
 
 export function createRenderer(canvas) {
@@ -53,7 +54,7 @@ export function addLights(scene) {
   key.target.position.set(0, 3, -3);
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
-  Object.assign(key.shadow.camera, { left: -7, right: 7, top: 11, bottom: -11, near: 2, far: 45 });
+  Object.assign(key.shadow.camera, { left: -7, right: 7, top: 13, bottom: -11, near: 2, far: 45 });
   key.shadow.bias = -0.0004;
   key.shadow.normalBias = 0.02;
   key.shadow.radius = 4;
@@ -135,16 +136,56 @@ export function createCamera() {
   return new THREE.PerspectiveCamera(42, 1, 0.1, 150);
 }
 
-// Frames the board, pulling back on narrow screens so its full width stays in view.
+// The corners of the cabinet that must stay on screen: the front of the win tray, the top of
+// the front posts, and the top of the sign. Wide, short screens only keep the front edge of the
+// playfield in view, so the machine isn't tiny on a phone held sideways.
+const framePoints = (bottom) =>
+  [-1, 1].flatMap((side) => {
+    const x = side * (BOARD.halfWidth + 0.6);
+    return [bottom(x), new THREE.Vector3(x, BOARD.wallHeight + 0.3, BOARD.frontZ), new THREE.Vector3(x, SIGN_TOP + 0.3, UPPER_WALL.frontZ)];
+  });
+const FRAME_POINTS = framePoints((x) => new THREE.Vector3(x, -2.6, BOARD.frontZ + 2.8));
+const FRAME_POINTS_WIDE = framePoints((x) => new THREE.Vector3(x, -0.3, BOARD.frontZ + 0.3));
+// How much of the screen the cabinet may use, in clip space. The top leaves room for the
+// counters on narrow screens.
+const FRAME_MARGIN = { side: 0.97, bottom: -0.93, top: 0.93, topNarrow: 0.8 };
+
+// Frames the whole cabinet, as close as the screen shape allows. The camera looks down at a
+// fixed angle and slides back along it until every frame point fits.
 export function frameCamera(camera, width, height) {
   camera.aspect = width / height;
-  const halfFovTan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-  // The machine is tall, so on wide screens the height decides how far back to stand.
-  const distance = Math.max(21, (BOARD.halfWidth + 1.4) / (halfFovTan * camera.aspect));
-  const position = new THREE.Vector3(0, 4.4 + distance * 0.45, BOARD.frontZ + distance * 0.88);
-  const target = new THREE.Vector3(0, 4.4, -3);
-  camera.position.copy(position);
-  camera.lookAt(target);
   camera.updateProjectionMatrix();
-  return { position, target };
+  const top = camera.aspect < 0.8 ? FRAME_MARGIN.topNarrow : FRAME_MARGIN.top;
+  const points = camera.aspect > 1.6 ? FRAME_POINTS_WIDE : FRAME_POINTS;
+  const target = new THREE.Vector3(0, 5.6, -3);
+  const direction = new THREE.Vector3(0, 0.45, 0.88).normalize();
+  const position = new THREE.Vector3();
+  const point = new THREE.Vector3();
+  const place = (distance) => {
+    position.copy(target).addScaledVector(direction, distance);
+    camera.position.copy(position);
+    camera.lookAt(target);
+    camera.updateMatrixWorld();
+  };
+  // Nudge the target up or down so the cabinet sits in the middle of the space it has, then
+  // find the closest distance that fits.
+  for (let pass = 0; pass < 3; pass++) {
+    let distance = 12;
+    for (; distance < 120; distance += 0.25) {
+      place(distance);
+      const fits = points.every((p) => {
+        point.copy(p).project(camera);
+        return Math.abs(point.x) <= FRAME_MARGIN.side && point.y <= top && point.y >= FRAME_MARGIN.bottom;
+      });
+      if (fits) break;
+    }
+    place(distance);
+    const ys = points.map((p) => point.copy(p).project(camera).y);
+    const offset = (Math.max(...ys) - top + (Math.min(...ys) - FRAME_MARGIN.bottom)) / 2;
+    if (Math.abs(offset) < 0.01) break;
+    // Clip space runs over 2 units of height; scale the shift to the view height at the target.
+    const viewHeight = 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    target.y += (offset * viewHeight) / 2;
+  }
+  return { position: position.clone(), target };
 }

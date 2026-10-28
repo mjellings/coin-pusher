@@ -158,6 +158,12 @@ export function createAudio({ muted = false } = {}) {
       });
       for (const note of ["C6", "E6", "G6"]) tone(NOTES[note], { type: "triangle", start: 0.6, decay: 1.2, level: 0.06 });
     },
+    // The wheel's pointer clicking past a peg, quieter as it slows down.
+    wheelTick(speed) {
+      if (!ctx) return;
+      tick({ level: 0.05 + 0.05 * speed, freq: 3500 });
+      tone(900, { type: "triangle", decay: 0.03, level: 0.04 });
+    },
     bonus() {
       if (!ctx) return;
       // Rising sparkle when a bonus item appears.

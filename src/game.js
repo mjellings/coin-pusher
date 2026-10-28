@@ -1,5 +1,14 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import { ITEMS, DUPLICATE_VALUE, SET_SHOWER, randomItem, isSetComplete, completedSets } from "./collection.js";
+import {
+  BONUS,
+  SHOWER_BONUS,
+  BAG_BONUS,
+  PRIZE_BONUS,
+  JACKPOT_SHOWER,
+  GUARDS_SECONDS,
+  QUICK_REFILL_MS,
+} from "./bonuses.js";
 
 // All sizes are in game units: a coin is 0.9 units across.
 export const COIN_RADIUS = 0.45;
@@ -12,7 +21,7 @@ export const BOARD = {
   halfWidth: 4,
   frontZ: 3,
   backZ: -10,
-  wallHeight: 10.8,
+  wallHeight: 14.2,
   // Coins that fall off the front edge within this distance of the centre are won;
   // the rest drop into the side gutters and are lost, like a real machine.
   winHalfWidth: 2.8,
@@ -47,15 +56,19 @@ export const PLINKO = {
   z: -6.4,
   halfGap: 0.1,
   bottomY: 4.5,
-  topY: 10.35,
+  topY: 13.75,
   pegRadius: 0.09,
   // Pegs must sit far enough apart, across and diagonally, for a coin to pass between them.
   // Listed from the top. The first row sits well below the slots so coins fall freely first.
-  rows: [8.4, 7.55, 6.7, 5.85, 5.0],
+  rows: [11.8, 10.95, 10.1, 9.25, 8.4, 7.55, 6.7, 5.85, 5.0],
   pegSpacing: 1.6,
   slots: [-3.2, -1.6, 0, 1.6, 3.2],
-  slotY: 9.8,
+  slotY: 13.2,
 };
+
+// The bonus gate slides back and forth along the bottom of the peg board. A coin that drops out
+// of the board through it is caught and spins the bonus wheel.
+export const GATE = { halfWidth: 0.18, range: 3, period: 6 };
 
 export const DROP = { cooldown: 0.25 };
 
@@ -145,6 +158,9 @@ class Game {
     this.refillAt = null;
     this.showerLeft = 0;
     this.nextShowerAt = 0;
+    this.spins = 0;
+    this.guardsLeft = 0;
+    this.quickRefillsUntil = 0;
     this.listeners = new Set();
     this.pegHandles = new Set();
 
@@ -333,6 +349,9 @@ class Game {
       collection: this.collection,
       refillAt: this.refillAt,
       showerLeft: this.showerLeft,
+      spins: this.spins,
+      guardsLeft: round(this.guardsLeft),
+      quickRefillsUntil: this.quickRefillsUntil,
       pieces: this.pieces.map(({ kind, body, inBoard, item }) => ({
         kind,
         ...(item && { item }),
@@ -359,6 +378,9 @@ class Game {
     }
     this.refillAt = Number.isFinite(save.refillAt) ? save.refillAt : null;
     this.showerLeft = Number.isFinite(save.showerLeft) ? save.showerLeft : 0;
+    this.spins = Number.isFinite(save.spins) ? save.spins : 0;
+    this.guardsLeft = Number.isFinite(save.guardsLeft) ? save.guardsLeft : 0;
+    this.quickRefillsUntil = Number.isFinite(save.quickRefillsUntil) ? save.quickRefillsUntil : 0;
     for (const { config, body } of this.pushers) {
       const p = body.translation();
       body.setTranslation({ x: p.x, y: p.y, z: this.pusherCenterZ(config, this.time) }, true);
@@ -415,20 +437,71 @@ class Game {
   }
 
   // Bonus pieces are too big for the peg board, so they drop straight onto the upper tier.
-  spawnBonus(kind = Math.random() < 0.4 ? "gem" : "prize") {
+  spawnBonus(kind = Math.random() < 0.4 ? "gem" : "prize", { quiet = false } = {}) {
     const x = (Math.random() - 0.5) * 5;
     const y = PLINKO.bottomY + 1.5;
     const z = SHELF.frontZ - 1;
     this.spawn(kind, x, y, z, { tilt: 0.6 });
-    this.emit({ type: "bonus", kind, x, y, z });
+    if (!quiet) this.emit({ type: "bonus", kind, x, y, z });
   }
 
-  spawnCollectable(item = randomItem(this.collection)) {
+  spawnCollectable(item = randomItem(this.collection), { quiet = false } = {}) {
     const x = (Math.random() - 0.5) * 5;
     const y = PLINKO.bottomY + 1.5;
     const z = SHELF.frontZ - 1;
     this.spawn("collectable", x, y, z, { tilt: 0.6, item });
-    this.emit({ type: "bonus", kind: "collectable", item, x, y, z });
+    if (!quiet) this.emit({ type: "bonus", kind: "collectable", item, x, y, z });
+  }
+
+  // Where the bonus gate is right now, across the machine.
+  gateX(t = this.time) {
+    return GATE.range * Math.sin((2 * Math.PI * t) / GATE.period);
+  }
+
+  get guardsUp() {
+    return this.guardsLeft > 0;
+  }
+
+  quickRefills(now = Date.now()) {
+    return now < this.quickRefillsUntil;
+  }
+
+  // Pays out what the wheel landed on, using up one waiting spin.
+  award(id, now = Date.now()) {
+    if (this.spins <= 0 || !BONUS[id]) return;
+    this.spins--;
+    switch (id) {
+      case "shower":
+        this.showerLeft += SHOWER_BONUS;
+        break;
+      case "bag":
+        this.bank += BAG_BONUS;
+        this.won += BAG_BONUS;
+        break;
+      case "prizes":
+        for (let i = 0; i < PRIZE_BONUS; i++) this.spawnBonus("prize", { quiet: true });
+        break;
+      case "collectable":
+        this.spawnCollectable(undefined, { quiet: true });
+        break;
+      case "guards":
+        this.guardsLeft += GUARDS_SECONDS;
+        break;
+      case "refills":
+        this.quickRefillsUntil = Math.max(now, this.quickRefillsUntil) + QUICK_REFILL_MS;
+        // Bring the next top-up forward to match the faster rate.
+        if (this.refillAt !== null) this.refillAt = Math.min(this.refillAt, now + this.refillInterval(now));
+        break;
+      case "jackpot": {
+        this.showerLeft += JACKPOT_SHOWER;
+        this.spawnBonus("gem", { quiet: true });
+        const missing = Object.keys(ITEMS).filter((item) => !this.collection[item]);
+        const item = missing.length ? missing[Math.floor(Math.random() * missing.length)] : randomItem(this.collection);
+        this.spawnCollectable(item, { quiet: true });
+        break;
+      }
+    }
+    this.emit({ type: "award", id });
   }
 
   // A collectable pushed off the front goes in the book. One you already have pays coins instead.
@@ -460,19 +533,23 @@ class Game {
     return REFILL.amount + REFILL.perSet * completedSets(this.collection).length;
   }
 
+  refillInterval(now = Date.now()) {
+    return this.quickRefills(now) ? REFILL.everyMs / 2 : REFILL.everyMs;
+  }
+
   // Free coins, checked against the real clock so they build up while the game is closed.
   tickRefill(now = Date.now()) {
     if (this.bank >= REFILL.cap) {
       this.refillAt = null;
       return;
     }
-    if (this.refillAt === null) this.refillAt = now + REFILL.everyMs;
+    if (this.refillAt === null) this.refillAt = now + this.refillInterval(now);
     let granted = 0;
     while (this.refillAt !== null && now >= this.refillAt) {
       const amount = Math.min(this.refillAmount(), REFILL.cap - this.bank);
       this.bank += amount;
       granted += amount;
-      this.refillAt = this.bank >= REFILL.cap ? null : this.refillAt + REFILL.everyMs;
+      this.refillAt = this.bank >= REFILL.cap ? null : this.refillAt + this.refillInterval(this.refillAt);
     }
     if (granted) this.emit({ type: "refill", amount: granted });
   }
@@ -504,12 +581,15 @@ class Game {
     this.detectPegHits();
     this.unstickCoins();
     this.tipUprightCoins();
+    if (this.guardsLeft > 0) this.guardsLeft = Math.max(0, this.guardsLeft - TIMESTEP);
     this.detectLandings();
     this.pourShower();
     this.removeFallenPieces((piece, pos) => {
-      if (pos.z > BOARD.frontZ && Math.abs(pos.x) < BOARD.winHalfWidth && piece.kind === "collectable") {
+      // While the side guards are up, everything pushed off the front is won.
+      const won = pos.z > BOARD.frontZ && (Math.abs(pos.x) < BOARD.winHalfWidth || this.guardsUp);
+      if (won && piece.kind === "collectable") {
         this.collect(piece.item, pos);
-      } else if (pos.z > BOARD.frontZ && Math.abs(pos.x) < BOARD.winHalfWidth) {
+      } else if (won) {
         this.bank += piece.value;
         this.won += piece.value;
         this.emit({ type: "win", kind: piece.kind, value: piece.value, x: pos.x, z: pos.z });
@@ -536,14 +616,17 @@ class Game {
   }
 
   // Coins in the peg board pass through each other. Once a coin has dropped clear of the board
-  // it collides with other coins again. One that comes to rest on a peg gets a sideways nudge.
+  // it collides with other coins again, unless it came out through the bonus gate, which keeps
+  // it and earns a spin. One that comes to rest on a peg gets a sideways nudge.
   unstickCoins() {
+    const caught = [];
     for (const piece of this.pieces) {
       if (!piece.inBoard) continue;
       const pos = piece.body.translation();
       if (pos.y < PLINKO.bottomY - COIN_RADIUS - 0.05) {
         piece.inBoard = false;
         piece.collider.setCollisionGroups(NORMAL_GROUPS);
+        if (Math.abs(pos.x - this.gateX()) < GATE.halfWidth) caught.push(piece);
         continue;
       }
       const v = piece.body.linvel();
@@ -554,6 +637,17 @@ class Game {
         piece.stillFor = 0;
       }
     }
+    for (const piece of caught) {
+      const pos = piece.body.translation();
+      this.removePiece(piece);
+      this.spins++;
+      this.emit({ type: "gate", x: pos.x, y: pos.y, z: pos.z });
+    }
+  }
+
+  removePiece(piece) {
+    this.world.removeRigidBody(piece.body);
+    this.pieces.splice(this.pieces.indexOf(piece), 1);
   }
 
   // Coins only stay up on edge by rolling or leaning, so a quick spin about the right axis lays

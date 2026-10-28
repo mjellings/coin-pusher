@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { BOARD, SHELF, SCRAPER, PUSHERS, UPPER_WALL, PLINKO, PEGS, DEFLECTORS, LIP_HALF_THICKNESS } from "../game.js";
+import { BOARD, SHELF, SCRAPER, PUSHERS, UPPER_WALL, PLINKO, PEGS, DEFLECTORS, LIP_HALF_THICKNESS, GATE } from "../game.js";
 import { brushedMetal, signTexture, pegBoardTexture } from "./textures.js";
 
 const SIGN_BOTTOM = PLINKO.topY + 0.75;
-const SIGN_TOP = SIGN_BOTTOM + 1.85;
+export const SIGN_TOP = SIGN_BOTTOM + 1.85;
 const BACK_TOP = SIGN_TOP + 0.5;
 
 export function buildCabinet(scene) {
@@ -122,9 +122,23 @@ export function buildCabinet(scene) {
   // Win tray below the front edge, with dark side gutters where coins are lost.
   box(winHalfWidth * 2, 0.3, 3, materials.tray, 0, -2.4, frontZ + 1.2);
   const gutterWidth = halfWidth + 0.7 - winHalfWidth;
+  // Shown while the side guards bonus is running.
+  const guardMaterial = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(0.4, 2.4, 1.2),
+    transparent: true,
+    opacity: 0.55,
+    depthWrite: false,
+  });
+  const guards = [];
   for (const side of [-1, 1]) {
     box(gutterWidth, 0.3, 3, materials.gutter, side * (winHalfWidth + gutterWidth / 2), -2.7, frontZ + 1.2);
     box(0.08, 0.7, 3, materials.chrome, side * winHalfWidth, -2.15, frontZ + 1.2);
+    // A glowing barrier along the front edge, in front of the gutter.
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(halfWidth - winHalfWidth, 0.35, 0.08), guardMaterial);
+    guard.position.set(side * (winHalfWidth + (halfWidth - winHalfWidth) / 2), 0.1, frontZ + 0.08);
+    guard.visible = false;
+    scene.add(guard);
+    guards.push(guard);
   }
 
   // Both pushers, each with a colour-cycling LED strip along its front edge.
@@ -162,7 +176,13 @@ export function buildCabinet(scene) {
     pushers,
     setSelectedSlot: slots.select,
     flashSlot: slots.flash,
+    setGateX: slots.setGateX,
+    flashGate: slots.flashGate,
+    setGuards(on) {
+      for (const guard of guards) guard.visible = on;
+    },
     update(time, dt) {
+      guardMaterial.opacity = 0.4 + Math.sin(time * 6) * 0.15;
       ledMaterials.forEach((material, i) => {
         ledColor.setHSL((time * 0.08 + i * 0.5) % 1, 1, 0.55).multiplyScalar(2.4);
         material.color.copy(ledColor);
@@ -215,6 +235,25 @@ function buildPegBoard(scene, materials, box) {
     scene.add(light);
   });
 
+  // The bonus gate: a lit gold cup under the bottom of the board that slides from side to side.
+  // Coins that drop into it spin the bonus wheel.
+  const gateMaterial = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 2.2, 0.5) });
+  const gate = new THREE.Group();
+  const gateDepth = PLINKO.halfGap * 2 + 0.36;
+  const cup = new THREE.Mesh(new THREE.BoxGeometry(GATE.halfWidth * 2 + 0.4, 0.08, gateDepth), gateMaterial);
+  gate.add(cup);
+  for (const side of [-1, 1]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.3, gateDepth), materials.chrome);
+    post.position.set(side * (GATE.halfWidth + 0.24), 0.11, 0);
+    gate.add(post);
+  }
+  gate.position.set(0, PLINKO.bottomY - 0.2, PLINKO.z);
+  scene.add(gate);
+  let gateFlash = 0;
+  const gateIdle = new THREE.Color(3, 2.2, 0.5);
+  const gateDim = new THREE.Color(1.2, 0.7, 0.15);
+  const gateHit = new THREE.Color(4, 4, 4);
+
   // A glowing arrow above the chosen slot.
   const arrow = new THREE.Mesh(
     new THREE.ConeGeometry(0.22, 0.4, 3),
@@ -235,7 +274,16 @@ function buildPegBoard(scene, materials, box) {
     flash(i) {
       flashes[i] = 1;
     },
+    setGateX(x) {
+      gate.position.x = x;
+    },
+    flashGate() {
+      gateFlash = 1;
+    },
     update(time, dt) {
+      gateFlash = Math.max(0, gateFlash - dt * 1.5);
+      gateMaterial.color.copy(gateDim).lerp(gateIdle, 0.5 + Math.sin(time * 8) * 0.5).lerp(gateHit, gateFlash);
+      gate.scale.setScalar(1 + gateFlash * 0.3);
       slotMaterials.forEach((material, i) => {
         flashes[i] = Math.max(0, flashes[i] - dt * 4);
         material.color.copy(i === selected ? active : idle).lerp(flash, flashes[i]);
