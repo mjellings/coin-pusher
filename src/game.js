@@ -25,12 +25,19 @@ export const SHELF = { topY: 2.6, frontZ: -4, gap: 0.03 };
 export const PUSHERS = [
   // Lower tier: slides under the shelf.
   { height: 1, depth: 6, baseY: 0, minFrontZ: -2.5, maxFrontZ: 0, period: 4, phase: 0 },
-  // Upper tier: rides on the shelf, out of step with the lower one.
+  // Upper tier: rides on the shelf. It keeps time with the lower pusher, so the coins it shoves
+  // off the shelf land while the lower pusher is fully out.
   // It pulls all the way back under its wall, so nothing can stay sitting on top of it. The lip
   // overhangs its front edge near the top, so it catches coins standing on edge high up and
   // tips them over instead of shoving them along upright.
-  { height: 0.8, depth: 5, baseY: SHELF.topY, minFrontZ: -8.45, maxFrontZ: -5.5, period: 5, phase: Math.PI, lip: 0.4 },
+  { height: 0.8, depth: 5, baseY: SHELF.topY, minFrontZ: -8.45, maxFrontZ: -5.5, period: 4, phase: 0, lip: 0.4 },
 ];
+
+// A clear scraper blade hanging over the lower pusher, in front of the shelf. Its bottom edge clears one flat coin on the pusher top, so as the
+// pusher carries coins forward, any riding on top of others are held back and knocked off. It
+// sits ahead of the pusher's rearmost reach, so the coins it holds back get shoved off the
+// pusher's front edge by the shelf as the pusher pulls back, instead of piling up behind it.
+export const SCRAPER = { z: -1.5, thickness: 0.08, clearance: 0.17, topY: 2 };
 
 // The wall above the upper pusher that scrapes coins off it as it pulls back.
 export const UPPER_WALL = { frontZ: -8, thickness: 0.5, bottomY: SHELF.topY + PUSHERS[1].height + 0.03 };
@@ -102,6 +109,10 @@ export const REFILL = { everyMs: 2 * 60 * 1000, amount: 10, cap: 30, perSet: 5 }
 const SHOWER_INTERVAL = 0.05;
 const LAND_SPEED = 2.5;
 const PEG_HIT_SPEED = 1.5;
+// Coins, prize coins and collectables standing on edge (tilted more than about 60°) for this long
+// get tipped over flat, falling away from the player where they can, as coins on a real machine
+// nearly always lie flat.
+const UPRIGHT = { cos: 0.5, after: 0.1, retry: 0.3, spin: 12 };
 // Collision groups, as (membership << 16) | filter. Coins inside the peg board don't collide with
 // each other, so a quick run of drops can't stack up and jam between the pegs; they still hit
 // the pegs, walls and everything else.
@@ -167,6 +178,15 @@ class Game {
       backZ + shelfDepth / 2,
     );
 
+    // Slippery facings on the shelf front and the scraper blade over the lower pusher, so coins
+    // dragged back against them by the pusher slide down flat instead of being propped up on edge.
+    const slippery = (hx, hy, hz, x, y, z) =>
+      fixed(hx, hy, hz, x, y, z, 0).setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min);
+    slippery(halfWidth, (SHELF.topY - shelfBottom) / 2, 0.01, 0, (shelfBottom + SHELF.topY) / 2, SHELF.frontZ + 0.01);
+    const scraperBottom = PUSHERS[0].height + SCRAPER.clearance;
+    const scraperHalf = (SCRAPER.topY - scraperBottom) / 2;
+    slippery(halfWidth, scraperHalf, SCRAPER.thickness / 2, 0, scraperBottom + scraperHalf, SCRAPER.z);
+
     // Upper scraper wall, from just above the upper pusher to the top of the cabinet.
     const wallHalf = (wallHeight - UPPER_WALL.bottomY) / 2;
     fixed(halfWidth, wallHalf, UPPER_WALL.thickness / 2, 0, UPPER_WALL.bottomY + wallHalf, UPPER_WALL.frontZ - UPPER_WALL.thickness / 2);
@@ -211,6 +231,15 @@ class Game {
       );
       this.world.createCollider(
         RAPIER.ColliderDesc.cuboid(halfWidth - 0.02, config.height / 2, config.depth / 2).setFriction(0.5),
+        body,
+      );
+      // A slippery facing on the front, so a coin pushed up against it slides back down flat
+      // instead of being held up on its edge.
+      this.world.createCollider(
+        RAPIER.ColliderDesc.cuboid(halfWidth - 0.02, config.height / 2 - 0.01, 0.01)
+          .setTranslation(0, 0, config.depth / 2)
+          .setFriction(0)
+          .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min),
         body,
       );
       if (config.lip) {
@@ -474,6 +503,7 @@ class Game {
     }
     this.detectPegHits();
     this.unstickCoins();
+    this.tipUprightCoins();
     this.detectLandings();
     this.pourShower();
     this.removeFallenPieces((piece, pos) => {
@@ -523,6 +553,40 @@ class Game {
         piece.body.setLinvel({ x: side * 2, y: 1, z: 0 }, true);
         piece.stillFor = 0;
       }
+    }
+  }
+
+  // Coins only stay up on edge by rolling or leaning, so a quick spin about the right axis lays
+  // them down. The coin's top edge goes towards the back of the machine, or sideways if its face
+  // points across.
+  tipUprightCoins() {
+    for (const piece of this.pieces) {
+      if (piece.inBoard || piece.kind === "gem") continue;
+      const { body } = piece;
+      if (body.isSleeping()) continue;
+      const r = body.rotation();
+      // The coin's face normal (its local y axis) in world space.
+      const ax = 2 * (r.x * r.y - r.w * r.z);
+      const ay = 1 - 2 * (r.x * r.x + r.z * r.z);
+      const az = 2 * (r.y * r.z + r.w * r.x);
+      if (Math.abs(ay) > UPRIGHT.cos) {
+        piece.uprightFor = 0;
+        continue;
+      }
+      piece.uprightFor = (piece.uprightFor ?? 0) + TIMESTEP;
+      if (piece.uprightFor < UPRIGHT.after) continue;
+      // Give each tip time to work before trying again.
+      piece.uprightFor = -UPRIGHT.retry;
+      // Tip the top edge along the face normal, whichever way points further back. If that didn't
+      // work last time, it's probably leaning on a pusher or wall, so tip it the other way.
+      const length = Math.hypot(ax, az) || 1;
+      piece.tipForward = piece.tippedAt > this.time - UPRIGHT.retry - 0.5 ? !piece.tipForward : false;
+      piece.tippedAt = this.time;
+      const sign = (az > 0) !== piece.tipForward ? -1 : 1;
+      const [dx, dz] = [(sign * ax) / length, (sign * az) / length];
+      // Spinning about up × d swings the top edge towards d.
+      const w = body.angvel();
+      body.setAngvel({ x: w.x + dz * UPRIGHT.spin, y: w.y, z: w.z - dx * UPRIGHT.spin }, true);
     }
   }
 

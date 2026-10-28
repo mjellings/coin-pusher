@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { BOARD, SHELF, PUSHERS, UPPER_WALL, PLINKO, PEGS, DEFLECTORS, LIP_HALF_THICKNESS } from "../game.js";
+import { BOARD, SHELF, SCRAPER, PUSHERS, UPPER_WALL, PLINKO, PEGS, DEFLECTORS, LIP_HALF_THICKNESS } from "../game.js";
 import { brushedMetal, signTexture, pegBoardTexture } from "./textures.js";
 
 const SIGN_BOTTOM = PLINKO.topY + 0.75;
@@ -83,6 +83,10 @@ export function buildCabinet(scene) {
   );
   shelfLed.position.set(0, SHELF.topY - 0.25, SHELF.frontZ + 0.02);
   scene.add(shelfLed);
+
+  // The scraper over the lower pusher: a clear pane, barely there.
+  const scraperBottom = PUSHERS[0].height + SCRAPER.clearance;
+  box(halfWidth * 2, SCRAPER.topY - scraperBottom, SCRAPER.thickness, materials.glass, 0, (scraperBottom + SCRAPER.topY) / 2, SCRAPER.z, { cast: false, receive: false });
 
   for (const side of [-1, 1]) {
     const x = side * (halfWidth + 0.25);
