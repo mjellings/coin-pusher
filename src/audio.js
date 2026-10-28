@@ -142,6 +142,22 @@ export function createAudio({ muted = false } = {}) {
         tone(NOTES[note] * 2, { type: "sine", start: 0.05 + i * 0.07, decay: 0.25, level: 0.03 });
       });
     },
+    // A bright arpeggio for a new item in the Collection Book.
+    collect() {
+      if (!ctx) return;
+      ["G5", "C6", "E6", "G6"].forEach((note, i) => {
+        tone(NOTES[note], { type: "square", start: i * 0.08, decay: 0.22, level: 0.045 });
+        tone(NOTES[note] * 2, { type: "sine", start: i * 0.08, decay: 0.35, level: 0.04 });
+      });
+    },
+    // A finished set: a longer, grander run that ends on a held chord.
+    fanfare() {
+      if (!ctx) return;
+      ["C5", "E5", "G5", "C6", "E6", "G6"].forEach((note, i) => {
+        tone(NOTES[note], { type: "square", start: i * 0.09, decay: 0.25, level: 0.045 });
+      });
+      for (const note of ["C6", "E6", "G6"]) tone(NOTES[note], { type: "triangle", start: 0.6, decay: 1.2, level: 0.06 });
+    },
     bonus() {
       if (!ctx) return;
       // Rising sparkle when a bonus item appears.

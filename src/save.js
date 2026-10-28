@@ -2,6 +2,7 @@
 
 const SAVE_KEY = "coin-pusher:save";
 const SAVE_VERSION = 1;
+let enabled = true;
 
 export function loadSave() {
   try {
@@ -13,9 +14,21 @@ export function loadSave() {
 }
 
 export function writeSave(game) {
+  if (!enabled) return;
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({ version: SAVE_VERSION, savedAt: Date.now(), ...game.snapshot() }));
   } catch {
     // Storage can be unavailable (private windows); progress just won't persist.
+  }
+}
+
+// Wipes the save and stops further saves, so the page can reload into a fresh game without the
+// autosave writing the old one back first.
+export function clearSave() {
+  enabled = false;
+  try {
+    localStorage.removeItem(SAVE_KEY);
+  } catch {
+    // Nothing to clear.
   }
 }

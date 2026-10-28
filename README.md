@@ -14,6 +14,10 @@ The button in the top right mutes the sound.
 
 Your game is saved in the browser every couple of seconds and when you close the tab: your coins, your winnings and every piece on the board. Open the game again in the same browser to carry on where you left off.
 
+Now and then a collectable token drops onto the upper tier. Push it off the front to add it to the Collection Book (the book button, top right). There are three sets of five; rarer items have more stars. A duplicate pays 5 coins, and finishing a set rains 25 coins onto the board and adds 5 coins to every free top-up. **Start a new game** at the bottom of the book wipes everything.
+
+When you're below 30 coins, 10 free coins arrive every 2 minutes, up to 30, and they keep building up while the game is closed.
+
 ## Running locally
 
 ```sh
@@ -39,3 +43,5 @@ Every push to `main` builds the game and publishes it to GitHub Pages. In the re
 - `src/audio.js`: all sounds, synthesised with Web Audio.
 - `src/hud.js`: counters, popups, the mute button and saved settings.
 - `src/save.js`: saves and loads the game in the browser's local storage.
+- `src/collection.js`: the collectable sets and their rewards.
+- `src/book.js`: the Collection Book panel.

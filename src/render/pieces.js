@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { ConvexGeometry } from "three/examples/jsm/geometries/ConvexGeometry.js";
 import { COIN_RADIUS, COIN_HALF_HEIGHT, KINDS, GEM_POINTS, MAX_PIECES, PLINKO } from "../game.js";
-import { coinFaceBump, coinEdgeBump, glowSprite } from "./textures.js";
+import { coinFaceBump, coinEdgeBump, glowSprite, tokenFace, iconSprite } from "./textures.js";
+import { ITEMS } from "../collection.js";
 
 function coinMaterials(kind) {
   const gold = kind === "prize" ? 0xffb03a : 0xf3c14b;
@@ -68,6 +69,34 @@ export function createPieces(scene) {
   };
   for (const mesh of Object.values(meshes)) scene.add(mesh);
 
+  // Collectables each have their own face, and only a few are on the board at once, so each gets
+  // a plain mesh rather than an instanced one.
+  const tokenGeometry = new THREE.CylinderGeometry(
+    KINDS.collectable.radius,
+    KINDS.collectable.radius,
+    KINDS.collectable.halfHeight * 2,
+    48,
+    1,
+  );
+  const tokenMaterials = new Map();
+  const materialsFor = (id) => {
+    if (!tokenMaterials.has(id)) {
+      const { icon, set } = ITEMS[id];
+      const face = new THREE.MeshStandardMaterial({ map: tokenFace(icon, set.color), roughness: 0.35, metalness: 0.1 });
+      const edge = new THREE.MeshStandardMaterial({
+        color: set.color,
+        metalness: 0.6,
+        roughness: 0.3,
+        emissive: set.color,
+        emissiveIntensity: 0.35,
+      });
+      const marker = new THREE.SpriteMaterial({ map: iconSprite(icon, set.color), transparent: true, depthWrite: false });
+      tokenMaterials.set(id, { mesh: [edge, face, face], marker });
+    }
+    return tokenMaterials.get(id);
+  };
+  const tokens = new Map();
+
   // Soft halos that follow the bonus pieces, so they stand out on a crowded board.
   const glowTexture = glowSprite();
   const halos = [];
@@ -96,7 +125,33 @@ export function createPieces(scene) {
     sync(pieces, time) {
       const counts = { coin: 0, prize: 0, gem: 0 };
       let haloCount = 0;
+      const seen = new Set();
       for (const piece of pieces) {
+        if (piece.kind === "collectable") {
+          let token = tokens.get(piece);
+          if (!token) {
+            const materials = materialsFor(piece.item);
+            token = new THREE.Mesh(tokenGeometry, materials.mesh);
+            token.castShadow = token.receiveShadow = true;
+            // Its icon floats above it, so you can tell what it is from any angle.
+            token.marker = new THREE.Sprite(materials.marker);
+            token.marker.scale.setScalar(1.1);
+            scene.add(token, token.marker);
+            tokens.set(piece, token);
+          }
+          seen.add(piece);
+          token.position.copy(piece.body.translation());
+          token.quaternion.copy(piece.body.rotation());
+          token.marker.position.copy(token.position);
+          token.marker.position.y += 0.9 + 0.08 * Math.sin(time * 3 + haloCount);
+          const halo = haloFor(haloCount++);
+          halo.visible = true;
+          halo.position.copy(token.position);
+          halo.material.color.set(ITEMS[piece.item].set.color);
+          halo.material.opacity = 0.35 * (0.8 + 0.2 * Math.sin(time * 4 + haloCount));
+          halo.scale.setScalar(2.4);
+          continue;
+        }
         const mesh = meshes[piece.kind];
         const index = counts[piece.kind];
         if (index >= mesh.instanceMatrix.count) continue;
@@ -114,6 +169,11 @@ export function createPieces(scene) {
           halo.material.opacity = (piece.kind === "gem" ? 0.4 : 0.25) * pulse;
           halo.scale.setScalar(piece.kind === "gem" ? 2.2 : 2.6);
         }
+      }
+      for (const [piece, token] of tokens) {
+        if (seen.has(piece)) continue;
+        scene.remove(token, token.marker);
+        tokens.delete(piece);
       }
       for (let i = haloCount; i < halos.length; i++) halos[i].visible = false;
       for (const [kind, mesh] of Object.entries(meshes)) {

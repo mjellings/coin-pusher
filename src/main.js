@@ -12,7 +12,9 @@ import { createPieces, createSlotGhost } from "./render/pieces.js";
 import { createParticles, createCameraShake } from "./render/effects.js";
 import { createAudio } from "./audio.js";
 import { createHud, loadSettings, saveSettings } from "./hud.js";
-import { loadSave, writeSave } from "./save.js";
+import { loadSave, writeSave, clearSave } from "./save.js";
+import { createBook } from "./book.js";
+import { ITEMS } from "./collection.js";
 
 const WIN_GROUP_SECONDS = 0.35;
 const AUTOSAVE_SECONDS = 2;
@@ -38,6 +40,7 @@ const particles = createParticles(scene);
 const shake = createCameraShake(camera);
 const audio = createAudio({ muted: settings.muted });
 const hud = createHud();
+const book = createBook();
 
 function resize() {
   const width = window.innerWidth;
@@ -107,14 +110,52 @@ game.on((event) => {
     case "bonus": {
       audio.bonus();
       const [sx, sy] = toScreen(event.x, event.y, event.z);
-      hud.popup(event.kind === "gem" ? "GEM! +10" : "PRIZE COIN! ×5", sx, sy, { kind: event.kind, banner: true });
+      const text =
+        event.kind === "collectable"
+          ? `${ITEMS[event.item].icon} COLLECTABLE!`
+          : event.kind === "gem"
+            ? "GEM! +10"
+            : "PRIZE COIN! ×5";
+      hud.popup(text, sx, sy, { kind: event.kind, banner: true });
+      break;
+    }
+    case "collect": {
+      const item = ITEMS[event.item];
+      particles.burst(event.x, -0.4, BOARD.frontZ + 0.4, { kind: "gem", value: 10 });
+      shake.add(0.6);
+      const [sx, sy] = toScreen(event.x, 0.6, BOARD.frontZ);
+      if (event.isNew) {
+        audio.collect();
+        hud.popup(`${item.icon} NEW: ${item.name.toUpperCase()}!`, sx, sy - 40, { kind: "collectable", banner: true });
+        book.markNew(event.item);
+      } else {
+        audio.win(event.value, "gem");
+        hud.popup(`${item.icon} DUPLICATE +${event.value}`, sx, sy - 40, { kind: "collectable", banner: true });
+      }
+      book.render(game.collection);
+      writeSave(game);
+      break;
+    }
+    case "set": {
+      audio.fanfare();
+      shake.add(1);
+      hud.popup(`${event.set.name.toUpperCase()} COMPLETE!`, window.innerWidth / 2, window.innerHeight * 0.4, {
+        kind: "collectable",
+        big: true,
+        banner: true,
+      });
+      break;
+    }
+    case "refill": {
+      audio.bonus();
+      hud.popup(`FREE COINS +${event.amount}`, window.innerWidth / 2, window.innerHeight * 0.3, { banner: true });
       break;
     }
   }
   hud.bank.set(game.bank);
   hud.won.set(game.won);
-  hud.refill.hidden = game.bank > 0;
 });
+book.render(game.collection);
 hud.bank.set(game.bank, { instant: true });
 hud.won.set(game.won, { instant: true });
 hud.bank.render();
@@ -149,21 +190,31 @@ function dropCoin() {
 
 canvas.addEventListener("pointermove", aimAt);
 canvas.addEventListener("pointerdown", (event) => {
+  if (book.isOpen) return;
   aimAt(event);
   dropCoin();
 });
 // Keyboard: arrow keys pick a slot, space or enter drops.
 window.addEventListener("keydown", (event) => {
-  if (event.target instanceof HTMLButtonElement) return;
+  if (event.target instanceof HTMLButtonElement || book.isOpen) return;
   if (event.key === "ArrowLeft") selectSlot(slot - 1);
   else if (event.key === "ArrowRight") selectSlot(slot + 1);
   else if (event.key === " " || event.key === "Enter") dropCoin();
   else return;
   event.preventDefault();
 });
-hud.refill.addEventListener("click", () => {
+book.button.addEventListener("click", () => {
   audio.unlock();
-  game.refill();
+  book.open(game.collection);
+});
+book.onClose(() => book.close());
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && book.isOpen) book.close();
+});
+book.reset.addEventListener("click", () => {
+  if (!window.confirm("Start a new game? Your coins, winnings and Collection Book will be reset.")) return;
+  clearSave();
+  location.reload();
 });
 hud.muteButton.addEventListener("click", () => {
   audio.unlock();
@@ -180,6 +231,13 @@ renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.1);
   const time = clock.elapsedTime;
   game.update(dt);
+  const now = Date.now();
+  game.tickRefill(now);
+  hud.setRefill({
+    msLeft: game.refillAt === null ? null : game.refillAt - now,
+    amount: game.refillAmount(),
+    empty: game.bank === 0,
+  });
   if (pendingWin && performance.now() - pendingWin.at > WIN_GROUP_SECONDS * 1000) flushWin();
 
   pieces.sync(game.pieces, time);

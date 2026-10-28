@@ -1,4 +1,5 @@
 import RAPIER from "@dimforge/rapier3d-compat";
+import { ITEMS, DUPLICATE_VALUE, SET_SHOWER, randomItem, isSetComplete, completedSets } from "./collection.js";
 
 // All sizes are in game units: a coin is 0.9 units across.
 export const COIN_RADIUS = 0.45;
@@ -57,6 +58,8 @@ export const KINDS = {
   coin: { value: 1 },
   prize: { value: 5, radius: 0.64, halfHeight: 0.083 },
   gem: { value: 10 },
+  // Collectables pay nothing themselves; they go in the Collection Book.
+  collectable: { value: 0, radius: 0.55, halfHeight: 0.11 },
 };
 
 // Points of the gem's convex hull: a flat table on top, a hexagonal girdle and a pointed base.
@@ -92,6 +95,11 @@ const START_BANK = 50;
 // Keeps the physics cheap: no more drops once this many pieces are on the board.
 export const MAX_PIECES = 320;
 const BONUS_CHANCE = 0.03;
+const COLLECTABLE_CHANCE = 0.025;
+// Free coins: while the bank is below the cap, a top-up arrives every so often, even while the
+// game is closed. Each finished set in the Collection Book makes the top-up bigger.
+export const REFILL = { everyMs: 2 * 60 * 1000, amount: 10, cap: 30, perSet: 5 };
+const SHOWER_INTERVAL = 0.05;
 const LAND_SPEED = 2.5;
 const PEG_HIT_SPEED = 1.5;
 // Collision groups, as (membership << 16) | filter. Coins inside the peg board don't collide with
@@ -122,6 +130,10 @@ class Game {
     this.lastDropAt = -Infinity;
     this.bank = START_BANK;
     this.won = 0;
+    this.collection = {};
+    this.refillAt = null;
+    this.showerLeft = 0;
+    this.nextShowerAt = 0;
     this.listeners = new Set();
     this.pegHandles = new Set();
 
@@ -228,7 +240,7 @@ class Game {
     return Math.abs(Math.cos((2 * Math.PI * this.time) / PUSHERS[0].period));
   }
 
-  spawn(kind, x, y, z, { tilt = 0.3, rotation } = {}) {
+  spawn(kind, x, y, z, { tilt = 0.3, rotation, item } = {}) {
     const body = this.world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic()
         .setTranslation(x, y, z)
@@ -241,7 +253,7 @@ class Game {
       colliderFor(kind).setFriction(0.4).setRestitution(0.15).setDensity(1).setCollisionGroups(NORMAL_GROUPS),
       body,
     );
-    const piece = { kind, value: KINDS[kind].value, body, collider, prevVy: 0, lastLandAt: -Infinity, inBoard: false };
+    const piece = { kind, value: KINDS[kind].value, body, collider, prevVy: 0, lastLandAt: -Infinity, inBoard: false, item };
     this.pieces.push(piece);
     return piece;
   }
@@ -273,6 +285,8 @@ class Game {
     lay(PUSHERS[1].maxFrontZ + COIN_RADIUS + 0.05, SHELF.frontZ - COIN_RADIUS - 0.2, SHELF.topY + 0.3);
     // One prize coin on the lower tier from the start, so there's something to aim for.
     this.spawn("prize", (Math.random() - 0.5) * 3, 2.5, 0.3, { tilt: 0.05 });
+    // And a collectable, so the Collection Book shows up early.
+    this.spawn("collectable", (Math.random() - 0.5) * 3, 2.5, -1.8, { tilt: 0.05, item: randomItem(this.collection) });
     this.simulate(4, { scoring: false });
     // Anything that fell off while settling doesn't count.
     this.removeFallenPieces(() => {});
@@ -287,8 +301,12 @@ class Game {
       bank: this.bank,
       won: this.won,
       time: round(this.time),
-      pieces: this.pieces.map(({ kind, body, inBoard }) => ({
+      collection: this.collection,
+      refillAt: this.refillAt,
+      showerLeft: this.showerLeft,
+      pieces: this.pieces.map(({ kind, body, inBoard, item }) => ({
         kind,
+        ...(item && { item }),
         p: vec(body.translation()),
         r: vec(body.rotation(), "xyzw"),
         v: vec(body.linvel()),
@@ -305,15 +323,23 @@ class Game {
     this.bank = save.bank;
     this.won = save.won;
     this.time = Number.isFinite(save.time) ? save.time : 0;
+    if (save.collection && typeof save.collection === "object") {
+      for (const [id, count] of Object.entries(save.collection)) {
+        if (ITEMS[id] && Number.isFinite(count) && count > 0) this.collection[id] = count;
+      }
+    }
+    this.refillAt = Number.isFinite(save.refillAt) ? save.refillAt : null;
+    this.showerLeft = Number.isFinite(save.showerLeft) ? save.showerLeft : 0;
     for (const { config, body } of this.pushers) {
       const p = body.translation();
       body.setTranslation({ x: p.x, y: p.y, z: this.pusherCenterZ(config, this.time) }, true);
     }
     for (const saved of pieces.slice(0, MAX_PIECES)) {
       if (!KINDS[saved.kind] || !valid(saved.p, 3) || !valid(saved.r, 4)) continue;
+      if (saved.kind === "collectable" && !ITEMS[saved.item]) continue;
       const [x, y, z] = saved.p;
       const [rx, ry, rz, rw] = saved.r;
-      const piece = this.spawn(saved.kind, x, y, z, { rotation: { x: rx, y: ry, z: rz, w: rw } });
+      const piece = this.spawn(saved.kind, x, y, z, { rotation: { x: rx, y: ry, z: rz, w: rw }, item: saved.item });
       if (valid(saved.v, 3)) piece.body.setLinvel({ x: saved.v[0], y: saved.v[1], z: saved.v[2] }, true);
       if (valid(saved.w, 3)) piece.body.setAngvel({ x: saved.w[0], y: saved.w[1], z: saved.w[2] }, true);
       if (saved.inBoard) {
@@ -355,6 +381,7 @@ class Game {
     piece.collider.setCollisionGroups(IN_BOARD_GROUPS);
     this.emit({ type: "drop", slot, x });
     if (Math.random() < BONUS_CHANCE) this.spawnBonus();
+    else if (Math.random() < COLLECTABLE_CHANCE) this.spawnCollectable();
     return true;
   }
 
@@ -367,9 +394,58 @@ class Game {
     this.emit({ type: "bonus", kind, x, y, z });
   }
 
-  refill(amount = 20) {
-    this.bank += amount;
-    this.emit({ type: "bank" });
+  spawnCollectable(item = randomItem(this.collection)) {
+    const x = (Math.random() - 0.5) * 5;
+    const y = PLINKO.bottomY + 1.5;
+    const z = SHELF.frontZ - 1;
+    this.spawn("collectable", x, y, z, { tilt: 0.6, item });
+    this.emit({ type: "bonus", kind: "collectable", item, x, y, z });
+  }
+
+  // A collectable pushed off the front goes in the book. One you already have pays coins instead.
+  collect(item, pos) {
+    const isNew = !this.collection[item];
+    this.collection[item] = (this.collection[item] ?? 0) + 1;
+    const value = isNew ? 0 : DUPLICATE_VALUE;
+    this.bank += value;
+    this.won += value;
+    this.emit({ type: "collect", item, isNew, value, x: pos.x, z: pos.z });
+    const set = ITEMS[item].set;
+    if (isNew && isSetComplete(set, this.collection)) {
+      this.showerLeft += SET_SHOWER;
+      this.emit({ type: "set", set });
+    }
+  }
+
+  // Coins rain onto the upper tier one after another, so they don't all land in a heap.
+  pourShower() {
+    if (this.showerLeft <= 0 || this.time < this.nextShowerAt || this.pieces.length >= MAX_PIECES) return;
+    this.nextShowerAt = this.time + SHOWER_INTERVAL;
+    this.showerLeft--;
+    const x = (Math.random() - 0.5) * 6;
+    const z = SHELF.frontZ - 0.5 - Math.random() * 2.5;
+    this.spawn("coin", x, PLINKO.bottomY + 0.5, z, { tilt: 1.5 });
+  }
+
+  refillAmount() {
+    return REFILL.amount + REFILL.perSet * completedSets(this.collection).length;
+  }
+
+  // Free coins, checked against the real clock so they build up while the game is closed.
+  tickRefill(now = Date.now()) {
+    if (this.bank >= REFILL.cap) {
+      this.refillAt = null;
+      return;
+    }
+    if (this.refillAt === null) this.refillAt = now + REFILL.everyMs;
+    let granted = 0;
+    while (this.refillAt !== null && now >= this.refillAt) {
+      const amount = Math.min(this.refillAmount(), REFILL.cap - this.bank);
+      this.bank += amount;
+      granted += amount;
+      this.refillAt = this.bank >= REFILL.cap ? null : this.refillAt + REFILL.everyMs;
+    }
+    if (granted) this.emit({ type: "refill", amount: granted });
   }
 
   update(dt) {
@@ -399,8 +475,11 @@ class Game {
     this.detectPegHits();
     this.unstickCoins();
     this.detectLandings();
+    this.pourShower();
     this.removeFallenPieces((piece, pos) => {
-      if (pos.z > BOARD.frontZ && Math.abs(pos.x) < BOARD.winHalfWidth) {
+      if (pos.z > BOARD.frontZ && Math.abs(pos.x) < BOARD.winHalfWidth && piece.kind === "collectable") {
+        this.collect(piece.item, pos);
+      } else if (pos.z > BOARD.frontZ && Math.abs(pos.x) < BOARD.winHalfWidth) {
         this.bank += piece.value;
         this.won += piece.value;
         this.emit({ type: "win", kind: piece.kind, value: piece.value, x: pos.x, z: pos.z });
@@ -495,6 +574,7 @@ class Game {
 function colliderFor(kind) {
   if (kind === "gem") return RAPIER.ColliderDesc.convexHull(GEM_POINTS);
   if (kind === "prize") return RAPIER.ColliderDesc.cylinder(KINDS.prize.halfHeight, KINDS.prize.radius);
+  if (kind === "collectable") return RAPIER.ColliderDesc.cylinder(KINDS.collectable.halfHeight, KINDS.collectable.radius);
   return RAPIER.ColliderDesc.cylinder(COIN_HALF_HEIGHT, COIN_RADIUS);
 }
 
