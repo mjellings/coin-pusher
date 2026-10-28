@@ -705,6 +705,7 @@ class Game {
   // Puts the corner wedges in while the side guards bonus runs, and takes them out after.
   updateGuards() {
     if (this.guardsUp && !this.guardColliders) {
+      this.clearGuardCorners();
       this.guardColliders = [-1, 1].map((side) => {
         const points = new Float32Array(GUARD_POINTS.flatMap(([x, y, z]) => [side * x, y, z]));
         return this.world.createCollider(RAPIER.ColliderDesc.convexHull(points).setFriction(0.15));
@@ -712,6 +713,30 @@ class Game {
     } else if (!this.guardsUp && this.guardColliders) {
       for (const collider of this.guardColliders) this.world.removeCollider(collider, true);
       this.guardColliders = null;
+    }
+  }
+
+  // Moves anything sitting where a wedge is about to appear out past its slanted face, a little
+  // higher up so it settles back onto the pile, and wakes everything near the front so resting
+  // coins react to the new walls. Without this, coins asleep in the corners stay stuck inside.
+  clearGuardCorners() {
+    const { halfWidth, winHalfWidth, frontZ } = BOARD;
+    const back = frontZ - GUARD.depth;
+    for (const { body } of this.pieces) {
+      const p = body.translation();
+      if (p.z < back - COIN_RADIUS || p.y > GUARD.wallHeight + COIN_RADIUS || p.y < -1) continue;
+      if (p.z < back - COIN_RADIUS * 0.5) {
+        body.wakeUp();
+        continue;
+      }
+      // Where the slanted face is at this depth, and how far in a coin must be to clear it.
+      const t = Math.min(1, Math.max(0, (p.z - back) / GUARD.depth));
+      const clear = halfWidth - (halfWidth - winHalfWidth) * t - COIN_RADIUS * 1.3;
+      if (Math.abs(p.x) > clear) {
+        body.setTranslation({ x: Math.sign(p.x) * clear, y: Math.max(p.y, 0.2) + 0.4, z: Math.min(p.z, frontZ - COIN_RADIUS) }, true);
+        body.setLinvel({ x: -Math.sign(p.x) * 0.5, y: 0, z: 0 }, true);
+      }
+      body.wakeUp();
     }
   }
 
