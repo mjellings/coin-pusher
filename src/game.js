@@ -75,6 +75,9 @@ export const PLINKO = {
 // possible doesn't farm credits.
 export const GATE = { halfWidth: 0.55, catchHalfWidth: 0.35, range: 3, period: 4, cooldown: 3 };
 
+// The front face of the peg board's glass, plus room for a tumbling coin.
+const PLINKO_FRONT_Z = PLINKO.z + PLINKO.halfGap + 0.1 + COIN_RADIUS + 0.1;
+
 export const DROP = { cooldown: 0.25 };
 
 // Everything that can sit on the board. Coins are the normal currency; prize coins and
@@ -406,6 +409,12 @@ class Game {
       if (!KINDS[saved.kind] || !valid(saved.p, 3) || !valid(saved.r, 4)) continue;
       if (saved.kind === "collectable" && !ITEMS[saved.item]) continue;
       const [x, y, z] = saved.p;
+      // Older versions could pour shower coins into the peg board itself, where they wedged
+      // between its plates. Pour those again instead.
+      if (!saved.inBoard && saved.kind === "coin" && y > PLINKO.bottomY && Math.abs(z - PLINKO.z) < PLINKO.halfGap + 0.5) {
+        this.showerLeft++;
+        continue;
+      }
       const [rx, ry, rz, rw] = saved.r;
       const piece = this.spawn(saved.kind, x, y, z, { rotation: { x: rx, y: ry, z: rz, w: rw }, item: saved.item });
       if (valid(saved.v, 3)) piece.body.setLinvel({ x: saved.v[0], y: saved.v[1], z: saved.v[2] }, true);
@@ -555,7 +564,8 @@ class Game {
     this.nextShowerAt = this.time + SHOWER_INTERVAL;
     this.showerLeft--;
     const x = (Math.random() - 0.5) * 6;
-    const z = SHELF.frontZ - 0.5 - Math.random() * 2.5;
+    // They start just below the bottom of the peg board, so keep them clear of its glass.
+    const z = SHELF.frontZ - 0.4 - Math.random() * (SHELF.frontZ - 0.4 - PLINKO_FRONT_Z);
     this.spawn("coin", x, PLINKO.bottomY + 0.5, z, { tilt: 1.5 });
   }
 
