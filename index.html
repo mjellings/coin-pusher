@@ -13,6 +13,7 @@
       <div class="panel counter" id="bank-panel">
         <span class="label">Coins</span>
         <span class="value" id="bank">0</span>
+        <span class="timer" id="refill-timer" hidden></span>
       </div>
       <div class="panel counter" id="won-panel">
         <span class="label">Won</span>
@@ -21,6 +22,10 @@
     </div>
 
     <div id="controls">
+      <button class="panel control" id="book-button" type="button" aria-label="Open the Collection Book">
+        <span class="book-icon" aria-hidden="true">📖</span>
+        <span class="badge" id="book-count">0/15</span>
+      </button>
       <button class="panel control" id="mute" type="button" aria-pressed="false" aria-label="Mute sound">
         <svg class="icon-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z" /><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" /></svg>
         <svg class="icon-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z" /><path d="M16.5 9.5l5 5M21.5 9.5l-5 5" fill="none" /></svg>
@@ -29,7 +34,23 @@
 
     <div id="popups" aria-live="polite"></div>
     <div id="hint">Pick a slot, then click or tap to drop a coin</div>
-    <button id="refill" type="button" hidden>Out of coins! Get 20 more</button>
+    <div id="refill" class="panel" hidden>
+      <strong>Out of coins!</strong>
+      <span><span id="refill-amount">10</span> free coins in <span id="refill-countdown">2:00</span></span>
+    </div>
+    <div id="book" hidden>
+      <div class="book-sheet panel" role="dialog" aria-modal="true" aria-labelledby="book-title">
+        <header>
+          <h2 id="book-title">Collection Book</h2>
+          <button class="close" id="book-close" type="button" aria-label="Close">×</button>
+        </header>
+        <p class="book-intro">Push collectables off the front to collect them. Finish a set for a coin shower and bigger free-coin top-ups.</p>
+        <div id="book-sets"></div>
+        <footer>
+          <button class="reset" id="reset-game" type="button">Start a new game</button>
+        </footer>
+      </div>
+    </div>
     <div id="loading"><span>Loading</span></div>
     <script type="module" src="./src/main.js"></script>
   </body>

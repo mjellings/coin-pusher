@@ -53,14 +53,27 @@ export function createHud() {
   const won = rollingCounter(document.getElementById("won-panel"), document.getElementById("won"));
   const popups = document.getElementById("popups");
   const refill = document.getElementById("refill");
+  const refillAmount = document.getElementById("refill-amount");
+  const refillCountdown = document.getElementById("refill-countdown");
+  const refillTimer = document.getElementById("refill-timer");
   const hint = document.getElementById("hint");
   const muteButton = document.getElementById("mute");
 
   return {
     bank,
     won,
-    refill,
     muteButton,
+    // The countdown to the next free coins: a small line under the coin counter, and a bigger
+    // panel in the middle of the screen once the bank is empty.
+    setRefill({ msLeft, amount, empty }) {
+      const counting = msLeft !== null;
+      const text = counting ? formatTime(msLeft) : "";
+      refillTimer.hidden = !counting || empty;
+      refillTimer.textContent = `+${amount} in ${text}`;
+      refill.hidden = !empty || !counting;
+      refillAmount.textContent = amount;
+      refillCountdown.textContent = text;
+    },
     setMuted(muted) {
       muteButton.setAttribute("aria-pressed", String(muted));
       muteButton.setAttribute("aria-label", muted ? "Turn sound on" : "Mute sound");
@@ -82,4 +95,9 @@ export function createHud() {
       won.update(dt);
     },
   };
+}
+
+function formatTime(ms) {
+  const seconds = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }

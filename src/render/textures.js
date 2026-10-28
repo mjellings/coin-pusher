@@ -200,3 +200,46 @@ export function pegBoardTexture() {
   ctx.globalAlpha = 1;
   return texture(el, { srgb: true });
 }
+
+export const EMOJI_FONT = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+
+// The face of a collectable token: a disc in its set's colour with a bright rim and its icon.
+export function tokenFace(icon, color) {
+  const size = 256;
+  const [el, ctx] = canvas(size);
+  const c = size / 2;
+  const disc = ctx.createRadialGradient(c, c * 0.8, size * 0.05, c, c, size * 0.5);
+  disc.addColorStop(0, color);
+  disc.addColorStop(1, "#1a0c22");
+  ctx.fillStyle = disc;
+  ctx.fillRect(0, 0, size, size);
+  ctx.strokeStyle = "#fff3dc";
+  ctx.lineWidth = size * 0.05;
+  ctx.beginPath();
+  ctx.arc(c, c, size * 0.44, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.font = `${size * 0.58}px ${EMOJI_FONT}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(icon, c, c + size * 0.03);
+  return texture(el, { srgb: true });
+}
+
+// Just the icon on a soft glow, for the marker that floats above a collectable on the board.
+export function iconSprite(icon, color) {
+  const size = 128;
+  const [el, ctx] = canvas(size);
+  const c = size / 2;
+  const glow = ctx.createRadialGradient(c, c, 0, c, c, c);
+  glow.addColorStop(0, color);
+  glow.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, size, size);
+  ctx.globalAlpha = 1;
+  ctx.font = `${size * 0.6}px ${EMOJI_FONT}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(icon, c, c + size * 0.04);
+  return texture(el, { srgb: true });
+}
